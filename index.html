@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#090a0c" />
+  <meta name="description" content="Kira Chess — treinador pessoal adaptativo de xadrez." />
+  <title>Kira Chess</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="authGate" class="auth-gate hidden" aria-modal="true" role="dialog" aria-labelledby="authTitle">
+    <div class="auth-card">
+      <div class="auth-brand"><div class="brand-mark large">K</div><div><strong>KIRA CHESS</strong><span>SEU JOGO. SUA CONTA.</span></div></div>
+      <div class="auth-copy"><p class="eyebrow">ENTRAR</p><h1 id="authTitle">Seu progresso acompanha você.</h1><p>Crie uma conta para jogar em qualquer dispositivo e mandar o Kira Chess para seus amigos sem misturar os perfis.</p></div>
+      <div id="authNotConfigured" class="auth-setup-note hidden"><strong>Login ainda não conectado.</strong><span>O site funciona como convidado. Para ativar contas reais, configure <code>js/supabase-config.js</code> e execute <code>supabase-setup.sql</code>.</span></div>
+      <div id="authSignedIn" class="auth-signed-in hidden"><div class="avatar large" id="authAvatar">J</div><div><strong id="authUserName">Jogador</strong><span id="authUserEmail">—</span></div><button id="closeAuth" class="secondary-button">VOLTAR AO JOGO</button><button id="signOutButton" class="text-button danger">SAIR DA CONTA</button></div>
+      <div id="authForms">
+        <div class="auth-tabs"><button class="auth-tab active" data-auth-tab="signin">ENTRAR</button><button class="auth-tab" data-auth-tab="signup">CRIAR CONTA</button></div>
+        <form id="signInForm" class="auth-form">
+          <label>Email<input id="signInEmail" type="email" autocomplete="email" required placeholder="voce@email.com"></label>
+          <label>Senha<input id="signInPassword" type="password" autocomplete="current-password" required minlength="6" placeholder="••••••••"></label>
+          <button class="primary-button" type="submit">ENTRAR →</button>
+        </form>
+        <form id="signUpForm" class="auth-form hidden">
+          <label>Nome<input id="signUpName" type="text" autocomplete="name" required maxlength="32" placeholder="Como quer aparecer"></label>
+          <label>Email<input id="signUpEmail" type="email" autocomplete="email" required placeholder="voce@email.com"></label>
+          <label>Senha<input id="signUpPassword" type="password" autocomplete="new-password" required minlength="6" placeholder="mínimo 6 caracteres"></label>
+          <button class="primary-button" type="submit">CRIAR CONTA →</button>
+        </form>
+        <div id="authError" class="auth-error hidden" role="alert"></div>
+      </div>
+      <button id="continueGuest" class="secondary-button auth-guest">CONTINUAR COMO CONVIDADO</button>
+      <button id="shareSiteButton" class="text-button auth-share">↗ COMPARTILHAR KIRA CHESS</button>
+      <small class="auth-foot">Conta real usa Supabase. Convidado salva somente neste navegador.</small>
+    </div>
+  </div>
+  <div id="appShell" class="app-shell">
+    <aside class="sidebar" aria-label="Navegação principal">
+      <div class="brand" role="button" tabindex="0" data-view="home" aria-label="Ir para início">
+        <div class="brand-mark">K</div>
+        <div><strong>KIRA</strong><span>CHESS</span></div>
+      </div>
+      <nav class="nav-list">
+        <button class="nav-item active" data-view="home"><span class="nav-icon">⌂</span><span>Início</span></button>
+        <button class="nav-item" data-view="play"><span class="nav-icon">♞</span><span>Jogar</span></button>
+        <button class="nav-item" data-view="train"><span class="nav-icon">◇</span><span>Treinar</span></button>
+        <button class="nav-item" data-view="openings"><span class="nav-icon">♝</span><span>Aberturas</span></button>
+        <button class="nav-item" data-view="patterns"><span class="nav-icon">⌘</span><span>Padrões</span></button>
+        <button class="nav-item" data-view="analyze"><span class="nav-icon">⌁</span><span>Analisar</span></button>
+        <button class="nav-item" data-view="progress"><span class="nav-icon">↗</span><span>Meu jogo</span></button>
+      </nav>
+      <div class="sidebar-bottom">
+        <button id="accountButton" class="mini-profile account-button" type="button" title="Conta e perfil">
+          <div id="sidebarAvatar" class="avatar">J</div>
+          <div><strong id="sidebarName">Jogador</strong><span id="sidebarRating">Nível não avaliado</span></div>
+        </button>
+        <button class="icon-button" id="resetButton" title="Resetar dados locais" aria-label="Resetar dados">↻</button>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="mobile-header">
+        <div class="brand compact"><div class="brand-mark">K</div><div><strong>KIRA</strong></div></div>
+        <div class="rating-pill"><span id="mobileRating">—</span> <small id="mobileRatingLabel">em avaliação</small></div>
+      </header>
+
+      <section id="view-home" class="view active-view">
+        <div class="home-minimal">
+          <header class="home-welcome">
+            <p class="eyebrow">SEU TABULEIRO</p>
+            <h1 id="greeting">Boa tarde.</h1>
+            <p id="homeStatusText" class="lead">Antes de recomendar qualquer coisa, quero ver como você joga.</p>
+          </header>
+
+          <section class="home-profile-strip panel">
+            <div class="profile-snapshot">
+              <span>NÍVEL</span>
+              <strong id="homeLevel">Não avaliado</strong>
+              <small id="homeConfidence">Jogue uma partida de avaliação</small>
+            </div>
+            <div class="profile-snapshot">
+              <span>ESTILO</span>
+              <strong id="homeStyle">Ainda não sei</strong>
+              <small id="homeStyleDetail">Vou observar suas decisões, não um questionário.</small>
+            </div>
+            <div class="profile-snapshot">
+              <span>PARTIDAS</span>
+              <strong id="statGames">0</strong>
+              <small id="homeGameDetail">salvas neste navegador</small>
+            </div>
+          </section>
+
+          <section id="assessmentCallout" class="assessment-callout panel">
+            <div>
+              <div class="panel-kicker">PRIMEIRO PASSO</div>
+              <h2>Jogue. Eu avalio depois.</h2>
+              <p>Sem rating presumido e sem dicas. Em cerca de 12 decisões já consigo criar uma primeira faixa de nível, estilo provisório e trilha de treino.</p>
+            </div>
+            <button id="startAssessment" class="primary-button">JOGAR PARTIDA DE AVALIAÇÃO →</button>
+          </section>
+
+          <section class="home-routes" aria-label="Atalhos principais">
+            <button class="route-card route-primary" id="homeCoachPlay" data-home-route="coach">
+              <span class="route-icon">♞</span><span><strong>Jogar com Light</strong><small>Partida lenta, guiada e com raciocínio passo a passo.</small></span><b>→</b>
+            </button>
+            <button class="route-card" id="homeNormalPlay" data-home-route="normal">
+              <span class="route-icon">⚔</span><span><strong>Partida normal</strong><small>Sem ajuda. Light entra só na revisão.</small></span><b>→</b>
+            </button>
+            <button class="route-card" data-view-jump="train">
+              <span class="route-icon">◇</span><span><strong>Treinar</strong><small id="homeTrainingSummary">O catálogo aparece depois da avaliação.</small></span><b>→</b>
+            </button>
+            <button class="route-card" data-view-jump="openings">
+              <span class="route-icon">♝</span><span><strong>Aberturas</strong><small id="homeOpeningSummary">Recomendações vão depender do seu estilo.</small></span><b>→</b>
+            </button>
+          </section>
+
+          <nav class="home-secondary-links" aria-label="Mais áreas">
+            <button data-view-jump="patterns">⌘ Padrões</button>
+            <button data-view-jump="analyze">⌁ Analisar partidas</button>
+            <button data-view-jump="progress">↗ Meu jogo</button>
+          </nav>
+
+        </div>
+      </section>
+
+      <section id="view-train" class="view">
+        <div class="section-header compact-section-header">
+          <div><p class="eyebrow">TREINAR</p><h1>Seu catálogo, na ordem certa.</h1><p class="lead">Mais atividades onde você erra mais. Menos conteúdo só para encher tela.</p></div>
+        </div>
+        <div id="trainingLocked" class="panel locked-experience">
+          <span class="lock-symbol">◇</span><div><div class="panel-kicker">AINDA NÃO</div><h2>Primeiro eu preciso ver uma partida sua.</h2><p>Depois da avaliação, o catálogo é ordenado pelos erros mais comuns e pelo seu jeito de jogar.</p></div><button class="primary-button" data-start-assessment>JOGAR AVALIAÇÃO</button>
+        </div>
+        <div id="trainingExperience" class="training-experience hidden">
+          <section class="panel development-lab">
+            <div class="development-lab-head">
+              <div><div class="panel-kicker">TREINADOR DE JOGO</div><h2>Encontre o plano.</h2><p>Não procure um golpe em toda posição. Aprenda a decidir <strong>o que a posição pede</strong> antes de escolher o lance.</p></div>
+              <div class="development-score"><span>LEITURA DE PLANOS</span><strong id="developmentAccuracy">—</strong><small id="developmentCounter">1/8</small></div>
+            </div>
+            <div class="thinking-ladder" aria-label="Ordem mental recomendada">
+              <span><b>1</b>Ameaça?</span><i>→</i><span><b>2</b>Rei seguro?</span><i>→</i><span><b>3</b>Falta desenvolver?</span><i>→</i><span><b>4</b>Pior peça?</span><i>→</i><span><b>5</b>Estrutura/linha?</span><i>→</i><span><b>6</b>Plano</span>
+            </div>
+            <div class="development-workspace">
+              <div id="developmentBoard" class="chess-board development-board" aria-label="Posição para encontrar o plano"></div>
+              <div class="development-copy">
+                <div class="panel-kicker">POSIÇÃO NORMAL · SEM TÁTICA ANUNCIADA</div>
+                <h3 id="developmentTitle">Antes de criar um plano</h3>
+                <p id="developmentQuestion">Qual é a prioridade desta posição?</p>
+                <div id="developmentChoices" class="plan-choices"></div>
+                <div id="developmentFeedback" class="exercise-feedback development-feedback hidden"><strong id="developmentFeedbackTitle"></strong><p id="developmentFeedbackText"></p><small id="developmentFollowUp"></small></div>
+                <button id="developmentNext" class="primary-button" disabled>PRÓXIMA POSIÇÃO →</button>
+              </div>
+            </div>
+            <div class="memory-review-strip">
+              <div><span class="memory-count" id="memoryDueCount">0</span><div><strong>Padrões para recordar</strong><small id="memoryDueText">A memória será construída com repetição espaçada.</small></div><button id="reviewDuePattern" class="secondary-button">REVISAR</button></div>
+              <div><span class="memory-count" id="mistakeDueCount">0</span><div><strong>Erros seus vencidos</strong><small id="mistakeDueText">Posições reais voltam até você conseguir responder melhor.</small></div><button id="reviewDueMistake" class="secondary-button">TENTAR DE NOVO</button></div>
+            </div>
+          </section>
+          <aside class="training-catalog panel">
+            <div class="catalog-head"><div><div class="panel-kicker">RECOMENDADO</div><h2>Trilha atual</h2></div><span id="catalogBasis" class="soft-badge">avaliação</span></div>
+            <div id="trainingCatalog" class="catalog-list"></div>
+          </aside>
+          <section class="panel exercise-card">
+            <div class="exercise-header"><div><div class="panel-kicker" id="exerciseKicker">VISÃO</div><h2 id="exerciseTitle">O que mudou?</h2></div><div class="exercise-score"><strong id="exerciseScore">0/0</strong><span>sessão</span></div></div>
+            <div class="exercise-stage">
+              <div id="trainingBoard" class="chess-board training-board" aria-label="Tabuleiro de exercício"></div>
+              <div class="exercise-prompt">
+                <div class="light-mini">L</div>
+                <div><p id="exercisePrompt">Escolha uma atividade no catálogo.</p><small id="exerciseHintText">A primeira dica ensina como começar a pensar — não entrega a casa.</small></div>
+              </div>
+              <div id="exerciseFeedback" class="exercise-feedback hidden" role="status"><strong id="exerciseFeedbackTitle"></strong><p id="exerciseFeedbackText"></p></div>
+            </div>
+            <div class="exercise-actions"><button class="secondary-button" id="trainingHint">NÃO SEI COMO COMEÇAR</button><button class="primary-button" id="nextExercise" disabled>PRÓXIMA →</button></div>
+            <div class="session-inline"><span>Acertos <strong id="trainCorrect">0</strong></span><span>Erros <strong id="trainWrong">0</strong></span><span>Pistas <strong id="trainHints">0</strong></span><span id="sessionCoachText">Light observa como você chegou à resposta.</span></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="view-play" class="view play-view">
+        <div class="play-toolbar refined-play-toolbar">
+          <div><p class="eyebrow" id="playEyebrow">JOGAR COM LIGHT</p><h1 id="playTitle">Pense antes de mover.</h1></div>
+          <div class="play-controls">
+            <div class="mode-switch" role="group" aria-label="Modo da partida">
+              <button class="mode-button active" data-game-mode="coach">COM LIGHT</button>
+              <button class="mode-button" data-game-mode="normal">NORMAL</button>
+            </div>
+            <label>COR <select id="userColor"><option value="w" selected>Brancas</option><option value="b">Pretas</option><option value="random">Aleatória</option></select></label>
+            <label id="botLevelLabel" class="bot-level-control"><span>FORÇA DO BOT</span><select id="botLevel" aria-label="Elo aproximado do bot"><option value="300">≈300 Elo · Primeiro contato</option><option value="500" selected>≈500 Elo · Iniciante</option><option value="700">≈700 Elo · Aprendiz</option><option value="900">≈900 Elo · Clube iniciante</option><option value="1100">≈1100 Elo · Intermediário</option><option value="1300">≈1300 Elo · Competitivo</option><option value="1500">≈1500 Elo · Desafio forte</option></select></label>
+            <button class="secondary-button" id="newGameButton">NOVA</button>
+          </div>
+        </div>
+        <div class="game-layout">
+          <section class="board-column">
+            <div class="opponent-strip"><div class="avatar bot-avatar">K</div><div class="opponent-meta"><strong id="opponentName">Adversário</strong><span id="botDescription">Bot humano</span></div><span id="botEloBadge" class="elo-badge">≈500 Elo</span><div class="turn-indicator" id="turnIndicator">Sua vez</div></div>
+            <div id="gameBoard" class="chess-board game-board" aria-label="Tabuleiro de xadrez"></div>
+            <div class="player-strip"><div id="playerAvatar" class="avatar">J</div><div><strong id="playerName">Jogador</strong><span id="playerLevelLabel">Nível em avaliação</span></div><div class="material-status" id="materialStatus">Material igual</div></div>
+          </section>
+          <aside id="coachPanel" class="coach-panel panel">
+            <div class="coach-panel-head"><div><div class="panel-kicker" id="coachPanelKicker">LIGHT · AO VIVO</div><h2 id="coachStateTitle">Estou observando.</h2></div><div class="coach-sigil small">L</div></div>
+            <div class="coach-message" id="coachMessage">Depois da jogada adversária, eu vou te ensinar como organizar o pensamento — não qual lance copiar.</div>
+            <div id="coachGuide" class="coach-guide hidden"></div>
+            <div id="coachChoices" class="coach-choices hidden"></div>
+            <div id="coachQuickActions" class="coach-quick-actions">
+              <button id="coachThinkButton" class="secondary-button">COMO EU PENSO AGORA?</button>
+              <button id="coachHintButton" class="secondary-button subtle">UMA PISTA</button>
+              <button id="coachSkipButton" class="text-button hidden">JOGAR SEM RESPONDER</button>
+            </div>
+            <div class="move-log-wrap"><div class="move-log-title"><span>PARTIDA</span><button id="copyPgn" class="text-button">COPIAR PGN</button></div><div id="moveLog" class="move-log"><div class="empty-log">A partida ainda não começou.</div></div></div>
+            <div class="coach-footer"><span id="coachWarnings">0 intervenções</span><span id="gameStatus">Em andamento</span></div>
+          </aside>
+        </div>
+      </section>
+
+      <section id="view-openings" class="view">
+        <div class="section-header compact-section-header"><div><p class="eyebrow">ABERTURAS</p><h1>Uma abertura precisa combinar com você.</h1><p class="lead">Não é uma lista para decorar. É uma rota para chegar a posições que você entende.</p></div></div>
+        <div id="openingsLocked" class="panel locked-experience"><span class="lock-symbol">♝</span><div><div class="panel-kicker">RECOMENDAÇÃO BLOQUEADA</div><h2>Eu ainda não conheço seu estilo.</h2><p>Jogue a avaliação primeiro. Depois eu ordeno as aberturas por compatibilidade e explico o motivo.</p></div><button class="primary-button" data-start-assessment>JOGAR AVALIAÇÃO</button></div>
+        <div id="openingsExperience" class="openings-experience hidden">
+          <section class="opening-recommendation panel">
+            <div><div class="panel-kicker">SEU PERFIL</div><h2 id="openingStyleTitle">—</h2><p id="openingStyleText">—</p></div>
+            <div class="opening-priority"><span>PRIMEIRA PARA TESTAR</span><strong id="topOpeningName">—</strong><small id="topOpeningReason">—</small></div>
+          </section>
+          <div class="opening-layout">
+            <aside class="opening-list panel"><div class="panel-kicker">REPERTÓRIO PARA TESTAR</div><div id="openingList"></div></aside>
+            <section id="openingDetail" class="opening-detail panel"><div class="empty-state-inline">Escolha uma abertura para ver ideias, sequência inicial e principalmente <strong>o que fazer depois</strong>.</div></section>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-patterns" class="view">
+        <div class="section-header compact-section-header"><div><p class="eyebrow">PADRÕES</p><h1>Reconheça antes de calcular.</h1><p class="lead">Situações que aparecem tanto que precisam virar reflexo visual.</p></div></div>
+        <div id="patternsLocked" class="panel locked-experience"><span class="lock-symbol">⌘</span><div><div class="panel-kicker">CATÁLOGO PERSONALIZADO</div><h2>A ordem vem depois da avaliação.</h2><p>Eu vou colocar no topo os padrões que mais aparecerem nos seus erros.</p></div><button class="primary-button" data-start-assessment>JOGAR AVALIAÇÃO</button></div>
+        <div id="patternsExperience" class="patterns-experience hidden">
+          <section class="pattern-memory-summary panel"><div><div class="panel-kicker">MEMÓRIA DE PADRÕES</div><h2>Acertar uma vez não conta como aprender.</h2><p>O padrão avança por VER → ENTENDER → ENCONTRAR → RECONHECER → APLICAR → RECORDAR. Quando você erra ou depende de pista, ele volta mais cedo.</p></div><div class="pattern-memory-stats"><strong id="patternDueSummary">0 para revisar</strong><span id="patternLearnedSummary">0/8 em memória longa</span></div></section>
+          <div id="patternCatalog" class="pattern-grid"></div>
+        </div>
+      </section>
+
+      <section id="view-analyze" class="view">
+        <div class="section-header"><div><p class="eyebrow">GAME REVIEW</p><h1>Revise a partida, lance por lance.</h1><p class="lead">Último lance destacado, gráfico de vantagem, momentos-chave, melhor alternativa e a chance de tentar de novo.</p></div><button class="secondary-button" id="openPgnImport">IMPORTAR PARTIDA REAL</button></div>
+        <div id="analysisEmpty" class="panel empty-state"><div class="empty-symbol">⌁</div><h2>Nenhuma partida analisável ainda.</h2><p>Jogue uma partida ou importe um PGN.</p><button class="primary-button" data-view-jump="play">JOGAR AGORA</button></div>
+        <div id="analysisContent" class="analysis-content hidden">
+          <section class="review-summary panel">
+            <div><span>RESULTADO</span><strong id="analysisResult">—</strong></div>
+            <div><span>PRECISÃO ESTIMADA</span><strong id="analysisAccuracy">—</strong></div>
+            <div><span>ERROS</span><strong id="analysisMistakesCount">0</strong></div>
+            <div><span>ERROS GRAVES</span><strong id="analysisBlundersCount">0</strong></div>
+            <button id="reviewAnotherGame" class="secondary-button">ESCOLHER PARTIDA</button>
+          </section>
+          <section class="review-workspace">
+            <div class="review-board-side">
+              <div class="review-board-shell">
+                <div class="eval-bar" aria-label="Avaliação da posição"><div id="reviewEvalFill" class="eval-fill"></div><span id="reviewEvalLabel">0.0</span></div>
+                <div id="reviewBoard" class="chess-board review-board" aria-label="Tabuleiro da revisão"></div>
+              </div>
+              <div class="review-nav panel">
+                <button id="reviewFirst" aria-label="Primeira posição">|‹</button><button id="reviewPrev" aria-label="Lance anterior">‹</button><button id="reviewNext" aria-label="Próximo lance">›</button><button id="reviewLast" aria-label="Última posição">›|</button>
+                <button id="reviewNextKey" class="primary-button">PRÓXIMO MOMENTO-CHAVE →</button>
+              </div>
+            </div>
+            <aside class="review-coach panel">
+              <div class="review-coach-head"><div class="coach-sigil">L</div><div><span id="reviewMoveBadge" class="move-classification">POSIÇÃO INICIAL</span><h2 id="reviewMoveTitle">Vamos revisar.</h2></div></div>
+              <p id="reviewCoachText" class="review-coach-text">Avance pelos lances. Eu vou separar resultado de decisão.</p>
+              <div id="reviewBestLine" class="review-best-line hidden"></div>
+              <div class="review-actions"><button id="reviewRetry" class="secondary-button">TENTAR DE NOVO</button><button id="reviewBest" class="secondary-button">MOSTRAR MELHOR LANCE</button></div>
+              <div class="review-moves-wrap"><div class="panel-kicker">LANCES</div><div id="reviewMoveList" class="review-move-list"></div></div>
+            </aside>
+          </section>
+          <section class="review-graph-panel panel"><div class="panel-heading"><div><div class="panel-kicker">VANTAGEM AO LONGO DA PARTIDA</div><h2>Onde a posição mudou.</h2></div><span>clique no gráfico para navegar</span></div><div id="reviewGraph" class="review-graph"></div></section>
+        </div>
+        <section id="archiveSection" class="panel archive-panel hidden" aria-labelledby="archiveTitle"><div class="panel-heading archive-heading"><div><div class="panel-kicker">HISTÓRICO</div><h2 id="archiveTitle">Partidas concluídas</h2><p id="archiveSummary" class="analysis-copy">As últimas partidas ficam salvas neste navegador.</p></div></div><div id="archiveList" class="archive-list"></div></section>
+        <section id="mistakesSection" class="panel mistakes-panel hidden" aria-labelledby="mistakesTitle"><div class="panel-heading mistakes-heading"><div><div class="panel-kicker">MEUS ERROS</div><h2 id="mistakesTitle">Suas partidas viram treino.</h2><p id="mistakeSummary" class="analysis-copy">As posições relevantes aparecem aqui conforme você joga.</p></div></div><div id="mistakeList" class="mistake-list"></div></section>
+      </section>
+
+      <section id="view-progress" class="view">
+        <div class="section-header"><div><p class="eyebrow">MEU JOGO</p><h1>Informação que ajuda a melhorar.</h1><p class="lead">Sem ranking presumido e sem gráfico só para decorar a tela.</p></div></div>
+        <div class="progress-grid">
+          <section class="panel rating-card"><div class="panel-kicker">NÍVEL ESTIMADO</div><div class="rating-big"><strong id="progressRating">—</strong><span id="progressRange">aguardando avaliação</span></div><div class="progress-track"><div id="ratingProgressFill" class="progress-fill"></div></div><p id="ratingProgressText">A estimativa aparece depois de você jogar.</p></section>
+          <section class="panel"><div class="panel-kicker">ESTILO OBSERVADO</div><h2 id="progressStyle">Ainda não avaliado</h2><p id="progressStyleDescription" class="analysis-copy">Seu estilo será inferido das suas decisões.</p></section>
+          <section class="panel"><div class="panel-kicker">HABILIDADES</div><div id="skillBars" class="skill-bars"></div></section>
+          <section class="panel full-span"><div class="panel-heading"><div><div class="panel-kicker">PADRÕES</div><h2>O que está mudando</h2></div></div><div class="trend-grid"><div><span>Erros graves</span><strong id="trendBlunders">—</strong><small>por partida</small></div><div><span>Ameaças percebidas</span><strong id="trendThreats">—</strong><small id="trendThreatsCaption">amostra ainda pequena</small></div><div><span>Dependência</span><strong id="trendDependence">Coletando</strong><small>do treinador</small></div><div><span>Partidas concluídas</span><strong id="trendGames">0</strong><small>histórico local</small></div></div></section>
+          <section class="panel full-span thinking-report"><div class="panel-heading"><div><div class="panel-kicker">COMO VOCÊ PENSA</div><h2>O treino precisa transferir para a partida.</h2></div></div><div class="thinking-metrics"><div><span>Leitura de planos</span><strong id="thinkingPlanAccuracy">—</strong><small id="thinkingPlanSample">sem amostra</small></div><div><span>Partidas humanas</span><strong id="thinkingHumanGames">0</strong><small>importadas para diagnóstico</small></div><div><span>Padrões consolidados</span><strong id="thinkingPatternsLearned">0/8</strong><small>memória de longo prazo</small></div><div><span>Revisões vencidas</span><strong id="thinkingDueReviews">0</strong><small>padrões + erros reais</small></div></div></section>
+          <section class="panel full-span light-report"><div class="panel-heading"><div><div class="panel-kicker">RELATÓRIO DE LIGHT</div><h2 id="weeklyReportTitle">Ainda estou construindo sua linha de base.</h2></div><span id="weeklyReportBadge" class="report-badge">7 DIAS</span></div><p id="weeklyReportText" class="analysis-copy">Jogue algumas partidas para eu separar acaso de padrão.</p><div id="weeklyReportFacts" class="report-facts"></div></section>
+          <section class="panel full-span backup-panel"><div class="panel-heading"><div><div class="panel-kicker">DADOS LOCAIS</div><h2>Seu progresso é seu.</h2><p class="analysis-copy">Exporte um backup antes de limpar o navegador ou trocar de computador.</p></div></div><div class="backup-actions"><button id="exportBackup" class="secondary-button">EXPORTAR BACKUP</button><button id="importBackup" class="secondary-button">RESTAURAR BACKUP</button><input id="backupFileInput" class="hidden" type="file" accept="application/json,.json" /></div></section>
+        </div>
+      </section>
+    </main>
+
+    <nav class="mobile-nav" aria-label="Navegação mobile">
+      <button class="active" data-view="home"><span>⌂</span><small>Início</small></button>
+      <button data-view="play"><span>♞</span><small>Jogar</small></button>
+      <button data-view="train"><span>◇</span><small>Treinar</small></button>
+      <button data-view="openings"><span>♝</span><small>Aberturas</small></button>
+      <button data-view="analyze"><span>⌁</span><small>Analisar</small></button>
+    </nav>
+  </div>
+
+  <div id="promotionModal" class="modal-backdrop hidden" role="dialog" aria-modal="true"><div class="modal-card"><div class="panel-kicker">PROMOÇÃO</div><h2>Escolha a peça.</h2><div class="promotion-options"><button data-promote="q">♕</button><button data-promote="r">♖</button><button data-promote="b">♗</button><button data-promote="n">♘</button></div></div></div>
+
+  <div id="warningModal" class="modal-backdrop hidden" role="dialog" aria-modal="true">
+    <div class="modal-card warning-card"><div class="modal-light"><span>L</span></div><div class="panel-kicker">LIGHT</div><h2 id="warningTitle">Pare.</h2><p id="warningText">Há algo importante nessa jogada.</p><div id="warningHint" class="warning-hint hidden"></div><div class="modal-actions"><button id="reconsiderMove" class="secondary-button">TENTAR OUTRA</button><button id="askMoveHint" class="secondary-button">ME AJUDE A PENSAR</button><button id="confirmMove" class="primary-button">JOGAR ASSIM MESMO</button></div></div>
+  </div>
+
+  <div id="pgnImportModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="pgnImportTitle">
+    <div class="modal-card pgn-modal"><div class="panel-kicker">IMPORTAR PARTIDA</div><h2 id="pgnImportTitle">Cole o PGN.</h2><p>O Kira Chess analisará apenas o seu lado. A estimativa de nível não muda automaticamente por uma única importação.</p><label class="field-label" for="importSide">EU JOGUEI DE</label><select id="importSide" class="modal-select"><option value="w">Brancas</option><option value="b">Pretas</option></select><label class="field-label" for="pgnInput">PGN</label><textarea id="pgnInput" class="pgn-input" rows="10" spellcheck="false" placeholder="1. e4 e5 2. Nf3 Nc6 ..."></textarea><div id="importPgnError" class="form-error hidden" role="alert"></div><div class="modal-actions"><button id="cancelPgnImport" class="secondary-button">CANCELAR</button><button id="confirmPgnImport" class="primary-button">ANALISAR PARTIDA</button></div></div>
+  </div>
+
+  <div id="toast" class="toast hidden" role="status"></div>
+  <script src="js/chess-core.js"></script>
+  <script src="js/analysis-engine.js"></script>
+  <script src="js/player-model.js"></script>
+  <script src="js/coach-engine.js"></script>
+  <script src="js/opening-engine.js"></script>
+  <script src="js/coach-ai.js"></script>
+  <script src="js/human-bot.js"></script>
+  <script src="js/training-engine.js"></script>
+  <script src="js/pattern-memory.js"></script>
+  <script src="js/development-engine.js"></script>
+  <script src="js/mistake-library.js"></script>
+  <script src="js/game-archive.js"></script>
+  <script src="js/engine-review.js"></script>
+  <script src="js/review-engine.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/auth-service.js"></script>
+  <script src="js/progress-engine.js"></script>
+  <script src="js/data-portability.js"></script>
+  <script src="js/stockfish-service.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
