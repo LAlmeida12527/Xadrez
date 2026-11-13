@@ -22,6 +22,8 @@
   const PhaseDiagnosis = window.KiraPhaseDiagnosis;
   const Weakness = window.KiraWeaknessTraining;
   const Light = window.KiraLightReactions;
+  const Live = window.KiraLiveEvaluation;
+  let liveExplanation = null;
   let weaknessSelected = null;
   let weaknessLegal = [];
   const { StockfishService } = window.KiraStockfish;
@@ -138,6 +140,7 @@
   const stockfish = new StockfishService({
     onStatus: updateEngineStatus
   });
+  const liveQueue = new Live.Queue(stockfish);
 
   function deepClone(value) {
     return JSON.parse(JSON.stringify(value));
@@ -304,7 +307,11 @@
     return 'Desafio forte';
   }
 
+  function isPhysicalGame() { return game?.source === 'physical'; }
+  function interactionColor() { return isPhysicalGame() ? game.state.turn : game.userColor; }
+
   function isGuidedGame() {
+    if (isPhysicalGame() || game?.liveEvaluation) return false;
     return game?.mode === 'coach' || game?.mode === 'opening';
   }
 
@@ -317,15 +324,18 @@
     const state = initialState ? Core.cloneState(initialState) : Core.createInitialState();
     const key = Core.repetitionKey(state);
     const evaluation = opts.source === 'evaluation';
+    const physical = !evaluation && (opts.source === 'physical' || (!opts.source && !initialState && $('gameType').value === 'physical'));
     const botLevel = evaluation ? 500 : (Number(opts.botLevel) || Number($('botLevel')?.value) || 500);
     const userColor = evaluation ? 'w' : selectedUserColor(opts.userColor);
     const mode = evaluation ? 'evaluation' : (opts.mode || selectedGameMode());
     return {
       version: 6,
+      id: newLocalId(),
+      liveEvaluation: !evaluation && Boolean(opts.liveEvaluation ?? $('liveEvaluationToggle').checked),
       state,
       history: [],
       positionCounts: { [key]: 1 },
-      botLevel,
+      botLevel: physical ? 0 : botLevel,
       userColor,
       mode,
       trainingFocus: opts.trainingFocus || null,
@@ -337,7 +347,7 @@
       reason: null,
       startedAt: new Date().toISOString(),
       completedAt: null,
-      source: opts.source || (initialState ? 'critical-replay' : 'standard'),
+      source: physical ? 'physical' : opts.source || (initialState ? 'critical-replay' : 'standard'),
       sourceMistakeId: opts.sourceMistakeId || null,
       reviewComplete: false,
       coachStep: null
@@ -349,8 +359,10 @@
     return {
       ...input,
       version: 6,
+      id: input.id || newLocalId(),
+      liveEvaluation: Boolean(input.liveEvaluation),
       positionCounts: input.positionCounts || { [Core.repetitionKey(input.state)]: 1 },
-      botLevel: Number(input.botLevel) || 500,
+      botLevel: input.source === 'physical' ? 0 : Number(input.botLevel) || 500,
       userColor: input.userColor === 'b' ? 'b' : 'w',
       mode: input.mode || (input.source === 'evaluation' ? 'evaluation' : 'coach'),
       trainingFocus: input.trainingFocus || null,
@@ -387,14 +399,21 @@
     if (!game) return;
     const evaluation = isEvaluationGame();
     const guided = isGuidedGame();
+    const physical = isPhysicalGame();
+    $('gameType').value = physical ? 'physical' : 'bot';
+    document.querySelector('#view-play .mode-switch').classList.toggle('hidden', physical);
+    $('gameType').disabled = evaluation;
+    $('liveEvaluationToggle').checked = Boolean(game.liveEvaluation);
+    $('liveEvaluationToggle').disabled = evaluation;
+    $('finishRecording').disabled = evaluation || game.status !== 'playing' || !game.history.length;
     document.querySelectorAll('[data-game-mode]').forEach((button) => {
       button.classList.toggle('active', !evaluation && button.dataset.gameMode === game.mode);
-      button.disabled = evaluation;
+      button.disabled = evaluation || physical;
     });
     if ($('userColor')) $('userColor').disabled = evaluation;
     if ($('botLevel')) $('botLevel').disabled = evaluation;
     if ($('newGameButton')) $('newGameButton').disabled = evaluation;
-    if ($('botLevelLabel')) $('botLevelLabel').classList.toggle('hidden', evaluation);
+    if ($('botLevelLabel')) $('botLevelLabel').classList.toggle('hidden', evaluation || physical);
     if ($('coachQuickActions')) $('coachQuickActions').classList.toggle('hidden', !guided);
     if ($('coachSkipButton') && !guided) $('coachSkipButton').classList.add('hidden');
     if ($('playEyebrow')) $('playEyebrow').textContent = evaluation ? 'PARTIDA DE AVALIAÇÃO' : guided ? 'JOGAR COM LIGHT' : 'PARTIDA NORMAL';
@@ -410,14 +429,17 @@
     }
     if ($('botEloBadge')) {
       $('botEloBadge').textContent = evaluation ? 'Elo oculto' : `≈${game.botLevel} Elo`;
-      $('botEloBadge').classList.toggle('hidden', false);
+      $('botEloBadge').classList.toggle('hidden', physical);
     }
+    if (physical) { $('playEyebrow').textContent = 'TABULEIRO FÍSICO'; $('playTitle').textContent = 'Registre os lances dos dois lados.'; $('opponentName').textContent = 'Partida no tabuleiro físico'; $('botDescription').textContent = 'Toque na peça e no destino de cada lance, na ordem da partida.'; }
+    if (game.liveEvaluation) { $('playTitle').textContent = physical ? 'Seu tabuleiro, com avaliação ao vivo.' : 'Jogar contra o bot · avaliação ao vivo'; $('coachPanelKicker').textContent = 'LIGHT · STOCKFISH'; }
   }
 
   function startNewGame(options) {
     if (botTimer) clearTimeout(botTimer);
     botTimer = null;
     game = createGame(null, options);
+    liveExplanation = null; $('liveExplanation').classList.add('hidden');
     $('reviewFinishedGame').classList.add('hidden');
     selected = null;
     legalForSelected = [];
@@ -438,11 +460,11 @@
     } else if (isGuidedGame()) {
       setCoach('Estou observando.', 'Quando o adversário jogar, eu vou ajudar você a organizar o raciocínio antes da resposta.');
     } else {
-      setCoach('Partida normal.', 'Nenhuma dica durante a partida. Depois eu volto para revisar as decisões importantes.');
+      setCoach(isPhysicalGame() ? 'Registre a partida.' : 'Partida normal.', game.liveEvaluation ? 'O Stockfish avalia cada lance em paralelo. Toque numa etiqueta pronta para entender a continuação.' : isPhysicalGame() ? 'Registre as jogadas dos dois lados no tabuleiro. Ao encerrar, você pode abrir o diagnóstico.' : 'Nenhuma dica durante a partida. Depois eu volto para revisar as decisões importantes.');
     }
 
-    if (game.state.turn === game.userColor) {
-      $('turnIndicator').textContent = 'Sua vez · arraste ou clique';
+    if (isPhysicalGame() || game.state.turn === game.userColor) {
+      $('turnIndicator').textContent = isPhysicalGame() ? `${game.state.turn === 'w' ? 'Brancas' : 'Pretas'} jogam · registre o lance` : 'Sua vez · arraste ou clique';
     } else {
       botThinking = true;
       $('turnIndicator').textContent = 'Adversário pensando';
@@ -492,7 +514,7 @@
         botTurn();
       }, 250);
     } else {
-      $('turnIndicator').textContent = 'Sua vez · arraste ou clique';
+      $('turnIndicator').textContent = isPhysicalGame() ? `${game.state.turn === 'w' ? 'Brancas' : 'Pretas'} jogam · registre o lance` : 'Sua vez · arraste ou clique';
       setCoach('Prove que entendeu.', 'Você voltou ao momento crítico. Encontre uma decisão melhor sem olhar a resposta antiga.');
     }
 
@@ -558,6 +580,7 @@
       'threefold-repetition': 'repetição tripla',
       'insufficient-material': 'material insuficiente',
       imported: 'partida importada',
+      'recording-ended': 'registro encerrado',
       'assessment-complete': 'janela de avaliação concluída'
     };
     return labels[reason] || 'fim de partida';
@@ -843,7 +866,7 @@
 
     const isUser = byUser !== false;
     const before = Core.cloneState(game.state);
-    const risk = isUser ? Analysis.moveRisk(before, move) : null;
+    const risk = isUser && isGuidedGame() ? Analysis.moveRisk(before, move) : null;
 
     if (isUser && game.source !== 'mistake-review' && isGuidedGame() && !bypassCoach && risk) {
       pendingMove = move;
@@ -851,15 +874,15 @@
       return;
     }
 
-    const analysis = isUser ? Analysis.analyzeMove(before, move) : null;
-    const thinkingMs = isUser ? Math.max(0, Date.now() - moveStartedAt) : null;
+    const analysis = isUser && !game.liveEvaluation ? Analysis.analyzeMove(before, move) : null;
+    const thinkingMs = isUser && !isPhysicalGame() ? Math.max(0, Date.now() - moveStartedAt) : null;
     if (isUser) game.coachStep = null;
     const after = Core.makeMoveCopy(before, move);
     const notation = Core.sanNotation(before, move, after);
     const uci = Core.moveToUCI(move);
 
-    if (isUser && move.capture) game.materialWon += Analysis.pieceValue(move.capture);
-    if (!isUser && move.capture && Core.colorOf(move.capture) === game.userColor) game.materialLost += Analysis.pieceValue(move.capture);
+    if (Core.colorOf(move.piece) === game.userColor && move.capture) game.materialWon += Analysis.pieceValue(move.capture);
+    if (Core.colorOf(move.piece) !== game.userColor && move.capture && Core.colorOf(move.capture) === game.userColor) game.materialLost += Analysis.pieceValue(move.capture);
 
     game.state = after;
     coachHintLevel = 0;
@@ -867,6 +890,7 @@
     $('coachGuide')?.classList.add('hidden');
     game.history.push({ color: Core.colorOf(move.piece), notation, uci, move: { ...move }, fenBefore: Core.toFEN(before), fenAfter: Core.toFEN(after), thinkingMs, analysis });
     recordPosition();
+    if (game.liveEvaluation) enqueueLiveHistory(game);
     saveGame();
     renderGame();
 
@@ -876,6 +900,7 @@
     }
     if (isUser && completeEvaluationWindow()) return;
     if (checkGameEnd()) return;
+    if (isPhysicalGame()) { botThinking = false; moveStartedAt = Date.now(); $('turnIndicator').textContent = `${game.state.turn === 'w' ? 'Brancas' : 'Pretas'} jogam · registre o próximo lance`; return; }
 
     if (isUser) {
       $('turnIndicator').textContent = 'Adversário pensando';
@@ -889,26 +914,26 @@
         $('gameStatus').textContent = `Avaliação · ${decisions}/${EVALUATION_DECISIONS} decisões`;
         setCoach('Avaliação em andamento.', `Decisão ${decisions} de ${EVALUATION_DECISIONS}. Sem dicas durante a partida.`);
       } else {
-        setCoach('Adversário pensando.', 'Partida normal: nenhuma intervenção durante o jogo.');
+        setCoach('Adversário pensando.', game.liveEvaluation ? 'A avaliação roda em paralelo. Você pode explorar as etiquetas prontas sem alterar a partida.' : 'Partida normal: nenhuma intervenção durante o jogo.');
       }
       scheduleBotTurn();
     } else {
       botThinking = false;
       moveStartedAt = Date.now();
-      $('turnIndicator').textContent = 'Sua vez · arraste ou clique';
+      $('turnIndicator').textContent = isPhysicalGame() ? `${game.state.turn === 'w' ? 'Brancas' : 'Pretas'} jogam · registre o lance` : 'Sua vez · arraste ou clique';
       if (isGuidedGame()) {
         activateCoachObservation();
       } else if (isEvaluationGame()) {
         setCoach('Sua vez.', 'Jogue como você jogaria normalmente.');
       } else {
-        setCoach('Sua vez.', 'Sem ajuda durante a partida normal.');
+        setCoach('Sua vez.', game.liveEvaluation ? 'Continue jogando. A classificação aparece quando o Stockfish terminar o cálculo.' : 'Sem ajuda durante a partida normal.');
       }
     }
   }
 
   function botTurn() {
     botTimer = null;
-    if (!game || game.status !== 'playing' || game.state.turn === game.userColor) {
+    if (!game || isPhysicalGame() || game.status !== 'playing' || game.state.turn === game.userColor) {
       botThinking = false;
       return;
     }
@@ -969,6 +994,7 @@
 
   function finishGame() {
     const summary = Analysis.summarizeHistory(game.history, game.userColor);
+    if (game.liveEvaluation) for (const [field,label] of [['inaccuracies','inaccuracy'],['mistakes','mistake'],['blunders','blunder']]) summary[field] = game.history.filter(entry => entry.color === game.userColor && entry.liveEvaluation?.verified?.classification === label).length;
 
     if (game.source === 'critical-replay') {
       finishCriticalReplay(summary);
@@ -990,7 +1016,9 @@
     game.history.forEach((entry, index) => updatePatterns(entry, index, game.userColor));
     updateSkillsFromGame(summary);
     const analysis = buildAnalysis(summary);
+    if (game.liveEvaluation || game.history.some(entry => entry.liveEvaluation)) Object.assign(analysis, Live.snapshot(game.history, game.userColor), {liveEnabled:true,liveSessionId:game.id});
     const archiveItem = Archive.createArchiveItem(game, summary, pgnText(), analysis);
+    game.archiveId = archiveItem.id;
     profile.gameArchive = Archive.add(profile.gameArchive, archiveItem, Infinity);
     profile.lastAnalysis = archiveItem.analysis;
 
@@ -1005,7 +1033,7 @@
       profile.baseline.summary = { accuracy: null, weakest: profile.assessment.primaryWeakness || 'change' };
       trainingState.mode = profile.assessment.primaryWeakness || 'change';
       profile.selectedOpening = Openings.recommended(profile.assessment)[0]?.id || null;
-    } else if (profile.assessment?.completed && game.source !== 'opening-practice' && game.source !== 'mistake-review') {
+    } else if (profile.assessment?.completed && !game.liveEvaluation && !isPhysicalGame() && game.source !== 'opening-practice' && game.source !== 'mistake-review') {
       profile.rating = updateTrainingRating(profile.rating, game.botLevel || profile.rating || 300, game.result);
       advanceMissionIfNeeded();
       const freshAssessment = PlayerModel.assessGame(game.history, game.userColor, summary);
@@ -1033,7 +1061,7 @@
       return;
     }
 
-    const message = game.result === 'Vitória'
+    const message = game.result === 'Não informado' ? 'Registro concluído. Vamos examinar as decisões, sem presumir o resultado.' : game.result === 'Vitória'
       ? (summary.blunders > 0
         ? 'Você venceu. Não confunda o resultado com uma partida limpa; ainda há decisões para corrigir.'
         : 'Poucos erros graves. Desta vez o resultado acompanhou a qualidade das decisões.')
@@ -1237,7 +1265,7 @@
   }
 
   function setCoach(title, message) {
-    showLight($('playLightPortrait'), { pending: botThinking, stage: game?.status === 'ended' ? 'summary' : 'start' });
+    showLight($('playLightPortrait'), { pending: botThinking || Boolean(game?.liveEvaluation && liveQueue.pending(livePrefix(game))), stage: game?.status === 'ended' ? 'summary' : 'start' });
     $('coachStateTitle').textContent = title;
     $('coachMessage').textContent = message;
   }
@@ -1263,7 +1291,7 @@
   }
 
   function canInteractWithGame(showMessage) {
-    if (!game || game.status !== 'playing' || game.state.turn !== game.userColor || botThinking) return false;
+    if (!game || game.status !== 'playing' || (!isPhysicalGame() && (game.state.turn !== game.userColor || botThinking))) return false;
     if (coachObservationPending()) {
       if (showMessage) {
         $('coachPanel')?.classList.add('coach-attention');
@@ -1277,7 +1305,7 @@
 
   function movesFromSquare(row, col) {
     if (!game) return [];
-    return Core.generateLegalMoves(game.state, game.userColor).filter((move) => (
+    return Core.generateLegalMoves(game.state, interactionColor()).filter((move) => (
       move.fromRow === row && move.fromCol === col
     ));
   }
@@ -1306,7 +1334,7 @@
     if (!selectedPiece || Core.typeOf(selectedPiece) !== 'k') return null;
     if (row !== selected.row || ![0, 7].includes(col)) return null;
     const rook = game.state.board[row]?.[col];
-    if (!rook || Core.typeOf(rook) !== 'r' || Core.colorOf(rook) !== game.userColor) return null;
+    if (!rook || Core.typeOf(rook) !== 'r' || Core.colorOf(rook) !== interactionColor()) return null;
     const expectedToCol = col === 7 ? 6 : 2;
     return legalForSelected.find((move) => move.castle && move.toRow === row && move.toCol === expectedToCol) || null;
   }
@@ -1353,7 +1381,7 @@
     const row = Number(square.dataset.row);
     const col = Number(square.dataset.col);
     const piece = game.state.board[row]?.[col];
-    if (!piece || Core.colorOf(piece) !== game.userColor) return;
+    if (!piece || Core.colorOf(piece) !== interactionColor()) return;
 
     // Se o rei já está selecionado e o jogador toca na própria torre, preserve
     // a seleção do rei para que o clique seja interpretado como roque.
@@ -1409,7 +1437,7 @@
     if (chooseSelectedDestination(row, col)) return;
 
     const piece = game?.state.board[row]?.[col];
-    if (piece && Core.colorOf(piece) === game.userColor) {
+    if (piece && Core.colorOf(piece) === interactionColor()) {
       selected = { row, col };
       legalForSelected = movesFromSquare(row, col);
     } else {
@@ -1520,6 +1548,108 @@
     }
   }
 
+  function livePrefix(target) { return `${storageScope}:${profileEpoch}:${target.id}`; }
+
+  function enqueueLiveHistory(target, retryErrors = false) {
+    if (!target) return;
+    const scope = storageScope, epoch = profileEpoch;
+    target.id ||= newLocalId();
+    const prefix = livePrefix(target);
+    target.history.forEach((entry, index) => {
+      if (!entry.uci || !entry.fenBefore || entry.liveEvaluation?.status === 'ready' || (entry.liveEvaluation?.status === 'error' && !retryErrors)) return;
+      liveQueue.enqueue({ key: `${prefix}:${index + 1}`, entry, ply: index + 1,
+        valid: () => storageScope === scope && profileEpoch === epoch && (game === target || profile.gameArchive.some(item => item.id === target.archiveId || item.analysis?.liveSessionId === target.id)),
+        onResult: () => {
+          if (game === target) { saveGame(); renderLiveEvaluation(); }
+          const archive = profile.gameArchive.find(item => item.id === target.archiveId || item.analysis?.liveSessionId === target.id);
+          if (!archive || archive.moves[index]?.uci !== entry.uci || archive.moves[index]?.fenBefore !== entry.fenBefore) return;
+          archive.moves[index].liveEvaluation = entry.liveEvaluation;
+          if (entry.liveEvaluation.verified) archive.moves[index].classification = entry.liveEvaluation.verified.classification;
+          const snapshot = Live.snapshot(archive.moves, archive.analysis?.userColor || target.userColor);
+          const verified = new Map((archive.analysis?.phaseEngine?.moves || []).map(move => [move.ply, move]));
+          snapshot.phaseEngine.moves.forEach(move => verified.set(move.ply, move));
+          archive.analysis = { ...archive.analysis, ...snapshot, phaseEngine: { moves: [...verified.values()].sort((a,b)=>a.ply-b.ply) }, liveEnabled: true, liveSessionId: target.id };
+          for (const [field,label] of [['inaccuracies','inaccuracy'],['mistakes','mistake'],['blunders','blunder']]) {
+            const count = archive.analysis.phaseEngine.moves.filter(move => move.classification === label).length;
+            profile.stats[field] = Math.max(0, (profile.stats[field] || 0) + count - (archive[field] || 0));
+            archive[field] = count;
+          }
+          if (profile.lastAnalysis?.archiveId === archive.id) profile.lastAnalysis = archive.analysis;
+          saveProfile();
+          if (currentReviewArchiveItem()?.id === archive.id) renderAnalysis();
+        }
+      });
+    });
+  }
+
+  function resumeArchivedLive() {
+    for (const archive of profile.gameArchive) {
+      if (!archive.analysis?.liveEnabled || !archive.moves.some(entry => !entry.liveEvaluation || entry.liveEvaluation.status === 'pending')) continue;
+      if (game?.id === archive.analysis.liveSessionId) { enqueueLiveHistory(game); continue; }
+      enqueueLiveHistory({ id: archive.analysis.liveSessionId || archive.id, archiveId: archive.id, history: archive.moves, userColor: archive.analysis.userColor });
+    }
+  }
+
+  function renderLiveEvaluation() {
+    if (!game) return;
+    $('liveEvaluationPanel').classList.toggle('hidden', !game.liveEvaluation);
+    if (!game.liveEvaluation) return;
+    const ready = game.history.filter(entry => entry.liveEvaluation?.status === 'ready').length;
+    const errors = game.history.filter(entry => entry.liveEvaluation?.status === 'error').length;
+    $('liveEvaluationStatus').textContent = game.history.length
+      ? `Stockfish · ${ready} de ${game.history.length} lances avaliados.${errors ? ` ${errors} indisponível(is); tente novamente.` : ' Você pode continuar jogando durante o cálculo.'}`
+      : 'Stockfish · aguardando o primeiro lance. Registre a partida normalmente.';
+    $('retryLiveEvaluation').classList.toggle('hidden', !errors);
+    const list = $('liveEvaluationList');
+    const follow = game.history.length > Number(list.dataset.count || 0) || list.scrollWidth - list.clientWidth - list.scrollLeft < 48;
+    list.innerHTML = game.history.map((entry,index) => {
+      const result = entry.liveEvaluation;
+      const state = Core.parseFEN(entry.fenBefore);
+      const prefix = `${state.fullmove}${entry.color === 'b' ? '...' : '.'} ${entry.notation}`;
+      return result?.status === 'ready'
+        ? `<button class="live-label ${result.verified.classification}" data-live-ply="${index+1}" aria-label="${escapeHtml(prefix)}: ${escapeHtml(result.label)}. Explicar avaliação.">${escapeHtml(prefix)} · ${escapeHtml(result.label)}</button>`
+        : `<span class="live-label pending" data-live-pending="${index+1}">${escapeHtml(prefix)} · ${result?.status === 'error' ? 'Indisponível' : 'Calculando…'}</span>`;
+    }).join('');
+    list.dataset.count = String(game.history.length);
+    if (follow) list.scrollLeft = list.scrollWidth;
+    const last = game.history.at(-1)?.liveEvaluation;
+    showLight($('playLightPortrait'), {pending: game.history.some(entry => entry.liveEvaluation?.status === 'pending'), stage: game.status === 'ended' ? 'summary' : last?.verified?.reply ? 'reply' : 'start', confirmedThreat: Boolean(last?.verified?.reply)});
+  }
+
+  function openLiveExplanation(ply) {
+    const entry = game?.history[ply-1];
+    if (entry?.liveEvaluation?.status !== 'ready') return;
+    liveExplanation = { entry: JSON.parse(JSON.stringify(entry)), index: 0, orientation: game.userColor };
+    renderLiveExplanation();
+    $('liveExplanation').scrollIntoView({block:'start',behavior:'instant'});
+  }
+
+  function renderLiveExplanation() {
+    if (!liveExplanation) return;
+    const {entry,orientation} = liveExplanation;
+    const before = Core.parseFEN(entry.fenBefore);
+    let state = Core.makeMoveCopy(before, Core.moveFromUCI(before, entry.uci));
+    const line = entry.liveEvaluation.continuation || [];
+    liveExplanation.index = Math.min(liveExplanation.index, Math.max(0,line.length-1));
+    let arrow = null, text = '';
+    for (const uci of line.slice(0, liveExplanation.index+1)) {
+      const move = Core.moveFromUCI(state,uci); if (!move) break;
+      text = `Continuação possível das ${state.turn === 'w' ? 'brancas' : 'pretas'}: ${Weakness.words(state, uci, orientation)}.`;
+      state = Core.makeMoveCopy(state,move); arrow = move;
+    }
+    if (!line.length) {
+      const status = Core.gameStatus(state);
+      text = status.reason === 'checkmate' ? 'Este lance encerra a partida com xeque-mate. O adversário não tem resposta legal.'
+        : status.ended ? 'Este lance encerra a posição por empate. Não há continuação a jogar.' : 'O Stockfish não retornou uma continuação suficiente nesta avaliação. Nenhuma resposta foi inventada.';
+    }
+    $('liveExplanation').classList.remove('hidden');
+    $('liveExplanationTitle').textContent = `${entry.notation} · ${entry.liveEvaluation.label}`;
+    $('liveExplanationText').textContent = `Lance jogado: ${PhaseDiagnosis.describeMove(before,entry.uci)} (${entry.notation}). ${text}`;
+    renderBoard($('liveExplanationBoard'),state,{interactive:false,orientation,arrow});
+    $('nextLiveContinuation').disabled = !line.length || liveExplanation.index >= line.length-1;
+    $('restartLiveContinuation').disabled = !line.length || liveExplanation.index === 0;
+  }
+
   function renderGame() {
     if (!game) return;
     renderBoard($('gameBoard'), game.state, {
@@ -1528,7 +1658,10 @@
       onClick: onGameSquare,
       orientation: game.userColor
     });
+    if (isPhysicalGame() && game.status === 'playing') $('turnIndicator').textContent = `${game.state.turn === 'w' ? 'Brancas' : 'Pretas'} jogam · registre o lance`;
     renderMoveLog();
+    renderLiveEvaluation();
+    $('finishRecording').disabled = isEvaluationGame() || game.status !== 'playing' || !game.history.length;
     renderCoachObservation();
 
     const material = Core.materialScore(game.state);
@@ -1567,7 +1700,7 @@
     if (chooseSelectedDestination(row, col)) return;
 
     const piece = game.state.board[row][col];
-    if (piece && Core.colorOf(piece) === game.userColor) {
+    if (piece && Core.colorOf(piece) === interactionColor()) {
       selected = { row, col };
       legalForSelected = movesFromSquare(row, col);
       renderGame();
@@ -1605,7 +1738,8 @@
     if (game.status === 'ended') {
       if (game.result === 'Empate') text += '1/2-1/2';
       else if (game.result === 'Vitória') text += game.userColor === 'w' ? '1-0' : '0-1';
-      else text += game.userColor === 'w' ? '0-1' : '1-0';
+      else if (game.result === 'Derrota') text += game.userColor === 'w' ? '0-1' : '1-0';
+      else text += '*';
     }
     return text.trim();
   }
@@ -2061,7 +2195,7 @@
             <strong>${escapeHtml(item.result)}</strong>
           </div>
           <div class="archive-meta">
-            <span>${item.reason === 'imported' ? 'Partida importada' : `Bot ≈${item.botLevel || '—'}`}</span>
+            <span>${item.source === 'physical' ? 'Tabuleiro físico' : item.reason === 'imported' ? 'Partida importada' : `Bot ≈${item.botLevel || '—'}`}</span>
             <span>${issueCount} decisão(ões) para revisar</span>
             <span>${item.moves.length} meio-lance(s)</span>
           </div>
@@ -2281,7 +2415,7 @@
     const response = after && step.verified?.reply && Core.moveFromUCI(after, step.verified.reply);
     const issue = step && ['inaccuracy','mistake','blunder'].includes(step.classification);
     const stage = reviewRetryState ? reviewRetryPreview ? 'retry' : 'calculate' : reviewShowBest ? 'solution' : reviewPly === reviewData.moves.length ? 'summary' : issue && response ? 'reply' : 'start';
-    showLight($('reviewLightPortrait'), { pending: Boolean(phaseAnalysisJob), stage, confirmedThreat: Boolean(response) });
+    showLight($('reviewLightPortrait'), { pending: Boolean(phaseAnalysisJob) || liveQueue.keys.size > 0, stage, confirmedThreat: Boolean(response) });
     if (!phaseAnalysisJob && response && issue && !reviewShowBest && !reviewRetryState) $('reviewCoachText').textContent += ` Depois desse lance, ${Weakness.words(after, step.verified.reply, reviewData.userColor)}.`;
     renderReviewMoveList();
     renderReviewGraph();
@@ -2344,7 +2478,7 @@
     else if (session.hint === 1) text = `Onde olhar: observe ${look || 'o rei e as peças sem defesa'}. A casa está destacada. Não escolha um lance ainda; siga os ataques dessa peça.`;
     else if (session.hint >= 2) text = item.key === 'mate-missed' ? 'Existe uma rede de mate: seu rei limita as fugas. Procure um xeque que feche as casas restantes.' : reply ? `A ameaça: depois do lance original, ${Weakness.words(after, item.reply, state.turn)}. Como você pode evitar essa continuação?` : 'Procure os xeques e as casas de fuga do rei. Depois compare a atividade das suas peças. Não há uma resposta adversária verificada disponível para este lance.';
     if (weaknessSelected && !session.hint && !session.message) text = 'Agora calcule: depois da sua mudança, quais xeques, capturas ou ameaças o adversário teria?';
-    const pending = Boolean(phaseAnalysisJob);
+    const pending = Boolean(phaseAnalysisJob) || liveQueue.keys.size > 0;
     const stage = session.display === 'attempt' && session.solved ? 'solved' : session.display === 'solution' ? 'solution' : session.display === 'reply' ? 'reply' : session.hint === 1 ? 'hint1' : session.hint >= 2 ? 'hint2' : session.lastOutcome === 'retry' ? 'retry' : weaknessSelected ? 'calculate' : 'start';
     const decisive = session.display === 'attempt' && Core.gameStatus(shown).reason === 'checkmate';
     showLight($('weaknessLightPortrait'), { pending, stage, confirmedThreat: Boolean(reply), verified: item.source === 'Stockfish', decisive, unassisted: !session.hint && !session.revealed && !session.hadMiss });
@@ -2418,7 +2552,7 @@
       : history ? 'Ainda não apareceu uma fase claramente mais fraca.'
         : 'Nesta partida, os dados ainda não apontam uma fase claramente mais fraca.';
     summary.textContent = (report.smallSample ? 'Amostra pequena · conclusão provisória. ' : '') + (history
-      ? `${focus} ${report.games} ${report.human ? 'PGN(s) importado(s)' : 'partida(s) no Kira'} · ${origin}.`
+      ? `${focus} ${report.games} ${report.human ? 'partida(s) humana(s)' : 'partida(s) no Kira'} · ${origin}.`
       : `${focus} Fonte: ${origin}.`);
     if (!history) {
       const available = Weakness.build([source], null, profile.gameArchive, profile.weaknessSeen || []);
@@ -2457,16 +2591,18 @@
     const total = PhaseDiagnosis.positions(source).length;
     const checked = source.analysis?.phaseEngine?.moves?.length || 0;
     const complete = total > 0 && checked >= total;
-    button.disabled = Boolean(job) || !total || complete;
-    button.textContent = running ? 'Analisando…' : complete ? 'Stockfish concluído' : error ? 'Tentar Stockfish de novo' : 'Analisar com Stockfish';
+    const liveRunning = !complete && source.analysis?.liveSessionId && liveQueue.pending(`${storageScope}:${profileEpoch}:${source.analysis.liveSessionId}`);
+    button.disabled = Boolean(job) || Boolean(liveRunning) || !total || complete;
+    button.textContent = running || liveRunning ? 'Analisando…' : complete ? 'Stockfish concluído' : error ? 'Tentar Stockfish de novo' : 'Analisar com Stockfish';
     status.textContent = running ? `Stockfish · ${job.checked} de ${job.total} lances seus avaliados.`
-      : error ? error : complete ? `Stockfish · ${checked} lances seus avaliados.` : '';
+      : liveRunning ? `Stockfish ao vivo · ${checked} de ${total} lances seus avaliados.` : error ? error : complete ? `Stockfish · ${checked} lances seus avaliados.` : '';
     status.classList.toggle('hidden', !status.textContent);
   }
 
   async function analyzeGamePhases() {
     const source = currentReviewArchiveItem();
     if (!source) return;
+    if (source.analysis?.liveSessionId && liveQueue.pending(`${storageScope}:${profileEpoch}:${source.analysis.liveSessionId}`)) return;
     if (phaseAnalysisJob) {
       if (phaseAnalysisJob.archiveId !== source.id || phaseAnalysisJob.scope !== storageScope) {
         pendingPhaseAnalysis = { archiveId: source.id, scope: storageScope };
@@ -3270,7 +3406,7 @@
     setCoach(opening.name, `A sequência conhecida acabou. Agora não existe seta mágica: use as ideias da abertura e decida o próximo plano. ${opening.after[0]}`);
     $('gameStatus').textContent = 'Treino de abertura';
     if (game.state.turn !== game.userColor) { botThinking = true; $('turnIndicator').textContent = 'Adversário pensando'; scheduleBotTurn(); }
-    else $('turnIndicator').textContent = 'Sua vez · arraste ou clique';
+    else $('turnIndicator').textContent = isPhysicalGame() ? `${game.state.turn === 'w' ? 'Brancas' : 'Pretas'} jogam · registre o lance` : 'Sua vez · arraste ou clique';
     switchView('play');
   }
 
@@ -3479,13 +3615,14 @@
     applyGameModeUI();
     if ($('userColor') && ['w', 'b'].includes(game.userColor)) $('userColor').value = game.userColor;
     if ($('botLevel') && [...$('botLevel').options].some((option) => Number(option.value) === Number(game.botLevel))) $('botLevel').value = String(game.botLevel);
-    if (game.state.turn !== game.userColor) {
+    if (game.liveEvaluation) enqueueLiveHistory(game);
+    if (!isPhysicalGame() && game.state.turn !== game.userColor) {
       botThinking = true;
       $('turnIndicator').textContent = 'Adversário pensando';
       scheduleBotTurn();
     } else {
       moveStartedAt = Date.now();
-      $('turnIndicator').textContent = 'Sua vez · arraste ou clique';
+      $('turnIndicator').textContent = isPhysicalGame() ? `${game.state.turn === 'w' ? 'Brancas' : 'Pretas'} jogam · registre o lance` : 'Sua vez · arraste ou clique';
     }
   }
 
@@ -3533,6 +3670,7 @@
     if (scopeChanged) reviewData = null;
     renderAnalysis(); renderTraining(); renderOpenings(); renderPatterns();
     if (scopeChanged || !game) restoreGameForCurrentScope();
+    resumeArchivedLive();
     if (authUser && (scopeChanged || state.event === 'initial')) {
       if (ProfileSync.hasProgress(loadProfile('guest')) && !profile.guestTransfers?.[guestId]) openAuthGate();
       else closeAuthGate(false);
@@ -3642,6 +3780,14 @@
       const file = $('backupFileInput').files?.[0] || null; $('backupFileInput').value = ''; await restoreBackupFile(file);
     });
 
+    $('gameType').addEventListener('change', () => startNewGame({mode:selectedGameMode()}));
+    $('liveEvaluationToggle').addEventListener('change', () => { if (!game || isEvaluationGame()) return; game.liveEvaluation = $('liveEvaluationToggle').checked; if (game.liveEvaluation) enqueueLiveHistory(game); saveGame(); applyGameModeUI(); renderLiveEvaluation(); });
+    $('finishRecording').addEventListener('click', () => { if (!game?.history.length || game.status !== 'playing' || isEvaluationGame()) return; if (botTimer) clearTimeout(botTimer); botTimer = null; botThinking = false; game.status = 'ended'; game.result = $('recordingResult').value; game.reason = 'recording-ended'; game.completedAt = new Date().toISOString(); saveGame(); renderGame(); finishGame(); });
+    $('liveEvaluationList').addEventListener('click', (event) => { const button = event.target.closest('[data-live-ply]'); if (button) openLiveExplanation(Number(button.dataset.livePly)); });
+    $('retryLiveEvaluation').addEventListener('click', () => { enqueueLiveHistory(game, true); renderLiveEvaluation(); });
+    $('closeLiveExplanation').addEventListener('click', () => { liveExplanation = null; $('liveExplanation').classList.add('hidden'); });
+    $('nextLiveContinuation').addEventListener('click', () => { if (liveExplanation) { liveExplanation.index++; renderLiveExplanation(); } });
+    $('restartLiveContinuation').addEventListener('click', () => { if (liveExplanation) { liveExplanation.index = 0; renderLiveExplanation(); } });
     $('newGameButton').addEventListener('click', () => startNewGame({ mode: selectedGameMode() }));
     document.querySelectorAll('[data-pgn-example]').forEach((button) => button.addEventListener('click', async () => {
       try {

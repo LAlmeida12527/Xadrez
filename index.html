@@ -185,11 +185,13 @@
         <div class="play-toolbar refined-play-toolbar">
           <div><p class="eyebrow" id="playEyebrow">JOGAR COM LIGHT</p><h1 id="playTitle">Pense antes de mover.</h1></div>
           <div class="play-controls">
+            <label>PARTIDA <select id="gameType"><option value="bot">Jogar contra o bot</option><option value="physical">Tabuleiro físico</option></select></label>
+            <label class="live-toggle"><input id="liveEvaluationToggle" type="checkbox"> Avaliação ao vivo</label>
             <div class="mode-switch" role="group" aria-label="Modo da partida">
               <button class="mode-button active" data-game-mode="coach">COM LIGHT</button>
               <button class="mode-button" data-game-mode="normal">NORMAL</button>
             </div>
-            <label>COR <select id="userColor"><option value="w" selected>Brancas</option><option value="b">Pretas</option><option value="random">Aleatória</option></select></label>
+            <label>MEU LADO <select id="userColor" aria-label="Meu lado para o diagnóstico"><option value="w" selected>Brancas</option><option value="b">Pretas</option><option value="random">Aleatória</option></select></label>
             <label id="botLevelLabel" class="bot-level-control"><span>FORÇA DO BOT</span><select id="botLevel" aria-label="Elo aproximado do bot"><option value="300">≈300 Elo · Primeiro contato</option><option value="500" selected>≈500 Elo · Iniciante</option><option value="700">≈700 Elo · Aprendiz</option><option value="900">≈900 Elo · Clube iniciante</option><option value="1100">≈1100 Elo · Intermediário</option><option value="1300">≈1300 Elo · Competitivo</option><option value="1500">≈1500 Elo · Desafio forte</option></select></label>
             <button class="secondary-button" id="newGameButton">NOVA</button>
           </div>
@@ -198,6 +200,8 @@
           <section class="board-column">
             <div class="opponent-strip"><div class="avatar bot-avatar">K</div><div class="opponent-meta"><strong id="opponentName">Adversário</strong><span id="botDescription">Bot humano</span></div><span id="botEloBadge" class="elo-badge">≈500 Elo</span><div class="turn-indicator" id="turnIndicator">Sua vez</div></div>
             <div id="gameBoard" class="chess-board game-board" aria-label="Tabuleiro de xadrez"></div>
+            <section id="liveEvaluationPanel" class="live-evaluation-panel hidden" aria-label="Avaliação ao vivo"><p id="liveEvaluationStatus" role="status" aria-live="polite">Stockfish: aguardando seu primeiro lance.</p><div id="liveEvaluationList" class="live-evaluation-list"></div><button id="retryLiveEvaluation" class="text-button hidden">Tentar avaliações novamente</button></section>
+            <section id="liveExplanation" class="panel live-explanation hidden" aria-labelledby="liveExplanationTitle"><div class="panel-heading"><h2 id="liveExplanationTitle">Continuação possível</h2><button id="closeLiveExplanation" class="secondary-button">Fechar</button></div><p id="liveExplanationText" role="status"></p><div id="liveExplanationBoard" class="chess-board" aria-label="Tabuleiro de explicação da avaliação"></div><div class="live-explanation-actions"><button id="restartLiveContinuation" class="secondary-button">Reiniciar</button><button id="nextLiveContinuation" class="primary-button">Próximo lance da linha</button></div><small>Esta é uma continuação possível do Stockfish. O tabuleiro da partida permanece independente.</small></section>
             <div class="player-strip"><div id="playerAvatar" class="avatar">J</div><div><strong id="playerName">Jogador</strong><span id="playerLevelLabel">Nível em avaliação</span></div><div class="material-status" id="materialStatus">Material igual</div></div>
           </section>
           <aside id="coachPanel" class="coach-panel panel">
@@ -212,6 +216,7 @@
               <button id="coachSkipButton" class="text-button hidden">JOGAR SEM RESPONDER</button>
             </div>
             <div class="move-log-wrap"><div class="move-log-title"><span>PARTIDA</span><button id="copyPgn" class="text-button">COPIAR PGN</button></div><div id="moveLog" class="move-log"><div class="empty-log">A partida ainda não começou.</div></div></div>
+            <div class="end-recording"><label for="recordingResult">Resultado ao encerrar</label><select id="recordingResult"><option value="Não informado">Não informado</option><option value="Vitória">Minha vitória</option><option value="Derrota">Minha derrota</option><option value="Empate">Empate</option></select><button id="finishRecording" class="secondary-button">Encerrar registro</button></div>
             <div class="coach-footer"><span id="coachWarnings">0 intervenções</span><span id="gameStatus">Em andamento</span></div>
           </aside>
         </div>
@@ -357,6 +362,7 @@
   <script src="js/phase-diagnosis.js"></script>
   <script src="js/weakness-training.js"></script>
   <script src="js/light-reactions.js"></script>
+  <script src="js/live-evaluation.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

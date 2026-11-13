@@ -82,9 +82,9 @@
 
   function summarize(games, { history = false } = {}) {
     const eligible = history ? games.filter((game) => (
-      game.reason !== 'assessment-complete' && (!game.source || ['imported', 'standard'].includes(game.source))
+      game.reason !== 'assessment-complete' && (!game.source || ['imported', 'standard', 'physical'].includes(game.source))
     )) : games;
-    const imported = eligible.filter((game) => game.source === 'imported' || game.reason === 'imported');
+    const imported = eligible.filter((game) => game.source === 'physical' || game.source === 'imported' || game.reason === 'imported');
     const pool = imported.length ? imported : eligible;
     const useEngine = pool.some((game) => game.analysis?.phaseEngine?.moves?.length);
     const seen = new Set();

@@ -1,0 +1,21 @@
+'use strict';
+const assert=require('node:assert/strict');
+const Core=require('../js/chess-core');const Live=require('../js/live-evaluation');
+const entry={color:'w',uci:'e1d1',fenBefore:'4k3/8/5n2/3Q4/8/8/8/4K3 w - - 0 1'};
+const result={bestmove:'d5d3',same:false,depth:11,best:{scoreType:'cp',score:500,pv:['d5d3']},playedLine:{scoreType:'cp',score:-300,pv:['e1d1','f6d5','invalid']}};
+const evaluated=Live.evaluate(entry,1,result);
+assert.equal(evaluated.status,'ready');assert.equal(evaluated.label,'Erro grave');assert.deepEqual(evaluated.continuation,['f6d5']);assert.equal(evaluated.verified.reply,'f6d5');
+const snapshot=Live.snapshot([{...entry,liveEvaluation:evaluated},{...entry,color:'b',liveEvaluation:{...evaluated,verified:{...evaluated.verified,ply:2}}}],'b');assert.equal(snapshot.liveEvaluations.length,2);assert.equal(snapshot.phaseEngine.moves.length,1);assert.equal(snapshot.phaseEngine.moves[0].ply,2);
+(async()=>{
+ let release;const gate=new Promise(resolve=>release=resolve);let calls=0;
+ const queue=new Live.Queue({compareMove:async()=>{calls++;await gate;return result;}});
+ const first={...entry},second={...entry};let updates=0,valid=true;
+ queue.enqueue({key:'guest:game:1',entry:first,ply:1,valid:()=>true,onResult:()=>updates++});
+ queue.enqueue({key:'guest:game:1',entry:first,ply:1,valid:()=>true,onResult:()=>updates++});
+ queue.enqueue({key:'old-user:game:2',entry:second,ply:2,valid:()=>valid,onResult:()=>{throw new Error('old user must not receive callback');}});
+ assert.equal(first.liveEvaluation.status,'pending');assert.equal(calls,0,'Enqueue does not block input');
+ await new Promise(resolve=>setImmediate(resolve));assert.equal(calls,1);valid=false;release();
+ await new Promise(resolve=>setImmediate(resolve));assert.equal(updates,1);assert.equal(calls,1);assert.equal(queue.pending('guest:game'),false);
+ const bad=new Live.Queue({compareMove:async()=>{throw new Error('offline');}});const failed={...entry};bad.enqueue({key:'failed:1',entry:failed,ply:1,valid:()=>true,onResult:()=>{}});await new Promise(resolve=>setImmediate(resolve));assert.equal(failed.liveEvaluation.status,'error');
+ console.log('✓ Avaliação ao vivo: continuação legal, classes, lado correto, fila assíncrona, deduplicação e troca de conta.');
+})().catch(error=>{console.error(error);process.exitCode=1;});

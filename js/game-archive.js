@@ -28,7 +28,8 @@
       fenBefore: String(value.fenBefore || ''),
       fenAfter: String(value.fenAfter || ''),
       thinkingMs: value.thinkingMs == null ? null : Math.max(0, Number(value.thinkingMs) || 0),
-      classification: value.analysis?.classification?.label || value.classification || 'ok',
+      classification: value.liveEvaluation?.verified?.classification || value.analysis?.classification?.label || value.classification || 'ok',
+      liveEvaluation: value.liveEvaluation || null,
       loss: Math.max(0, Number(value.analysis?.classification?.loss ?? value.loss) || 0),
       likelyCause: value.analysis?.likelyCause || value.likelyCause || null,
       concepts: Array.isArray(value.analysis?.concepts) ? value.analysis.concepts.slice(0, 8) : Array.isArray(value.concepts) ? value.concepts.slice(0, 8) : []

@@ -2825,3 +2825,20 @@ body.auth-open { overflow:hidden; }
 .light-summary { display:flex; align-items:start; gap:16px; padding:20px; margin-bottom:16px; border-color:#59323a; }
 .light-summary h2 { font-size:20px; margin-top:0; }
 .light-summary p { font-size:14px; line-height:1.6; }
+.live-toggle { display:flex; align-items:center; gap:8px; min-height:44px; }
+.live-toggle input { width:20px; height:20px; accent-color:#a63248; }
+.live-evaluation-panel { border:1px solid #47303a; background:#151219; padding:12px; border-radius:12px; margin-top:12px; }
+.live-evaluation-panel p { font-size:13px; line-height:1.5; margin:0 0 10px; }
+.live-evaluation-list { display:flex; gap:8px; overflow-x:auto; padding-bottom:5px; }
+.live-label { flex:0 0 auto; border:1px solid #69616a; border-radius:9px; padding:10px 12px; min-height:44px; background:#211c24; color:#f3e9ed; font-size:13px; }
+.live-label.blunder, .live-label.mistake { border-color:#c15265; color:#ffd0d6; }
+.live-label.pending { color:#aaa4ae; font-size:12px; }
+.live-explanation { padding:16px; margin:12px 0; scroll-margin-top:76px; }
+.live-explanation h2 { font-size:20px; }
+.live-explanation p, .live-explanation small { font-size:14px; line-height:1.6; }
+#liveExplanationBoard { width:min(100%,440px); aspect-ratio:1; margin:12px auto; }
+.live-explanation-actions { display:flex; gap:8px; margin-bottom:12px; }
+.end-recording { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:14px 0; }
+.end-recording label { font-size:12px; }
+.end-recording select { background:#1c1921; color:#eee; padding:10px; border-radius:8px; border:1px solid #51434c; }
+@media(max-width:760px) { .live-explanation .panel-heading { align-items:start; gap:10px; } .live-explanation-actions button { min-height:44px; padding:10px; } .play-controls { flex-wrap:wrap; } }

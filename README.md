@@ -175,3 +175,7 @@ A prévia privada em Sites mantém um espelho da aplicação. O desenvolvimento 
 A tela **Conta** oferece Google, e-mail/senha e convidado. O botão Conta também aparece no cabeçalho do celular. A transferência opcional preserva o convidado e combina partidas/treinos com a nuvem sem substituir o histórico. O restauro agora usa as chaves de armazenamento do perfil ativo.
 
 **Google real depende de configuração externa e ainda não foi validado.** Consulte [configuração exata e roteiro de aceite](docs/google-sincronizacao.md). O documento separa testes simulados de conta real e descreve as oito expressões do Light.
+
+## Avaliação ao vivo e tabuleiro físico
+
+Em **Jogar**, escolha **Jogar contra o bot** ou **Tabuleiro físico** e ative **Avaliação ao vivo**. O Stockfish calcula em paralelo; toque na classificação para ver a continuação em português e com seta, sem alterar a partida. No modo físico, registre as jogadas de ambos os lados e escolha qual lado é seu. Ao terminar, lances e avaliações alimentam o diagnóstico por fase e ficam salvos. Veja [funcionamento e testes](docs/avaliacao-ao-vivo.md).
