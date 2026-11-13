@@ -1061,7 +1061,8 @@
       return;
     }
 
-    const message = game.result === 'Não informado' ? 'Registro concluído. Vamos examinar as decisões, sem presumir o resultado.' : game.result === 'Vitória'
+    const livePending = game.liveEvaluation && liveQueue.pending(livePrefix(game));
+    const message = livePending ? 'A partida terminou. As avaliações pendentes continuam em segundo plano e serão salvas no diagnóstico.' : game.result === 'Não informado' ? 'Registro concluído. Vamos examinar as decisões, sem presumir o resultado.' : game.result === 'Vitória'
       ? (summary.blunders > 0
         ? 'Você venceu. Não confunda o resultado com uma partida limpa; ainda há decisões para corrigir.'
         : 'Poucos erros graves. Desta vez o resultado acompanhou a qualidade das decisões.')
@@ -1577,6 +1578,7 @@
           if (profile.lastAnalysis?.archiveId === archive.id) profile.lastAnalysis = archive.analysis;
           saveProfile();
           if (currentReviewArchiveItem()?.id === archive.id) renderAnalysis();
+          if (game === target && game.status === 'ended' && !liveQueue.pending(prefix)) setCoach(`${game.result}.`, game.history.some(move => move.liveEvaluation?.status === 'error') ? 'Alguns lances não puderam ser avaliados. O registro foi preservado; você pode tentar novamente.' : 'As avaliações foram salvas. Toque nas etiquetas para estudar as respostas e abra o diagnóstico por fase.');
         }
       });
     });

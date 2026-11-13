@@ -43,3 +43,5 @@ npm run build
 Para a prévia privada, `node tests/live-browser.test.js --private-preview` recebe URL e autorização somente por stdin oculto. O Chromium executa os arquivos publicados, obtidos por HTTP autenticado com TLS verificado; nenhum conteúdo do aplicativo nem resultado do Stockfish é substituído. As etapas de jogo e aceite são as mesmas do teste local. O acesso privado do Sites é independente do perfil convidado do Kira. O resultado dessa execução fica registrado no PR.
 
 ![Continuação de uma etiqueta no celular](avaliacao-fisico-celular.png)
+
+Os dois modos também foram exercitados como convidado na prévia web publicada, com os mesmos cenários de clique/toque, Stockfish real, retomada e persistência. O resumo final aguarda as avaliações pendentes antes de comentar a qualidade da partida.

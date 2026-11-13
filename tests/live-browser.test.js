@@ -21,7 +21,7 @@ async function input(){if(!process.argv.includes('--private-preview'))return {ur
   await p.locator('[data-game-mode="normal"]').click();await p.locator('#liveEvaluationToggle').check();
   await move(p,'e2e4');await p.waitForFunction(()=>JSON.parse(localStorage.getItem('kiraChessCurrentGame_v5:guest')).history.length===2);await move(p,'g1f3');
   assert.equal((await read(p)).history.length,3);assert.equal(await p.locator('[data-live-pending]').count(),3,'Moves proceed while WASM has not loaded');
-  await p.locator('#finishRecording').click();const fen=(await read(p)).state;assert.equal((await read(p)).status,'ended');
+  await p.locator('#finishRecording').click();const fen=(await read(p)).state;assert.equal((await read(p)).status,'ended');assert.match(await p.locator('#coachMessage').innerText(),/avaliações pendentes/);
   bot.release();await completed(p,3);
   assert.equal((await profile(p)).gameArchive.at(-1).analysis.phaseEngine.moves.length,2);
   await p.locator('[data-live-ply="1"]').click();assert.equal(await p.locator('#liveExplanationBoard .response-arrow').count(),1);assert.match(await p.locator('#liveExplanationText').innerText(),/Continuação possível|continuação possível/);
