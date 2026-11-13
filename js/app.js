@@ -34,6 +34,7 @@
   const LEGACY_PROFILE_KEY = 'kiraChessProfile_v3';
   const GAME_KEY = 'kiraChessCurrentGame_v5';
   let storageScope = 'guest';
+  let profileEpoch = 0;
   let authUser = null;
   let authConfigured = false;
   let pendingAuthMessage = null;
@@ -2474,7 +2475,7 @@
     }
     const positions = PhaseDiagnosis.positions(source);
     if (!positions.length || source.analysis?.phaseEngine?.moves?.length >= positions.length) return;
-    const job = { scope: storageScope, owner: profile, archiveId: source.id, total: positions.length, checked: 0 };
+    const job = { scope: storageScope, epoch: profileEpoch, archiveId: source.id, total: positions.length, checked: 0 };
     const key = `${job.scope}:${job.archiveId}`;
     phaseAnalysisJob = job;
     phaseAnalysisErrors.delete(key);
@@ -2483,24 +2484,24 @@
     try {
       for (const position of positions) {
         const result = await stockfish.compareMove(position.fenBefore, position.uci, { depth: 11, multipv: 1 });
-        if (profile !== job.owner || storageScope !== job.scope) return;
+        if (profileEpoch !== job.epoch || storageScope !== job.scope) return;
         moves.push(PhaseDiagnosis.verifiedMove(position, result));
         job.checked = moves.length;
         if (profile.lastAnalysis?.archiveId === source.id) renderPhaseEngineStatus(source);
       }
-      const current = profile.gameArchive.find((item) => item.id === source.id);
+      const current = profile.gameArchive.find((item) => item.id === source.id || ProfileSync.gameKey(item) === ProfileSync.gameKey(source));
       if (!current) return;
-      const analysis = { ...current.analysis, archiveId: source.id, phaseEngine: { moves } };
-      profile.gameArchive = Archive.updateAnalysis(profile.gameArchive, source.id, analysis);
-      if (profile.lastAnalysis?.archiveId === source.id) profile.lastAnalysis = analysis;
+      const analysis = { ...current.analysis, archiveId: current.id, phaseEngine: { moves } };
+      profile.gameArchive = Archive.updateAnalysis(profile.gameArchive, current.id, analysis);
+      if (profile.lastAnalysis?.archiveId === current.id) profile.lastAnalysis = analysis;
       saveProfile();
     } catch (error) {
-      if (profile === job.owner) phaseAnalysisErrors.set(key, 'O Stockfish ficou indisponível. Você pode tentar novamente. A estimativa local continua visível.');
+      if (profileEpoch === job.epoch && storageScope === job.scope) phaseAnalysisErrors.set(key, 'O Stockfish ficou indisponível. Você pode tentar novamente. A estimativa local continua visível.');
       console.warn('Não foi possível concluir o diagnóstico por fase.', error);
     } finally {
       phaseAnalysisJob = null;
       const selected = currentReviewArchiveItem();
-      if (selected?.id === source.id && storageScope === job.scope) {
+      if (selected && (selected.id === source.id || ProfileSync.gameKey(selected) === ProfileSync.gameKey(source)) && storageScope === job.scope) {
         resetReviewInteraction();
         renderAnalysis();
       } else if (selected) renderPhaseEngineStatus(selected);
@@ -3517,6 +3518,7 @@
     const nextUser = state?.user || null;
     const nextScope = nextUser?.id || 'guest';
     const scopeChanged = nextScope !== storageScope;
+    if (scopeChanged) profileEpoch++;
     authUser = nextUser;
     storageScope = nextScope;
     if (state?.profile) profile = normalizeProfile(ProfileSync.merge(state.profile, loadProfile(storageScope)));

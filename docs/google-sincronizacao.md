@@ -81,6 +81,6 @@ npm run test:auth
 npm run build
 ```
 
-`test:auth` simula exclusivamente os endpoints Google/Supabase e usa o SDK real no navegador: consentimento, transferência sem substituir nuvem, repetição, conflito de revisão, PC/celular, continuidade do treino, offline/recuperação, restauro, cancelamento, falha, e-mail/senha e criação de conta. `npm test` também verifica troca de conta durante filas, recusa de escrita após falha de leitura, contadores e reações. A proteção SQL foi revisada estaticamente; não se declara uma execução em Supabase real.
+`test:auth` simula exclusivamente os endpoints Google/Supabase e usa o SDK real no navegador: consentimento, transferência sem substituir nuvem, repetição, conflito de revisão, PC/celular, continuidade do treino, análise Stockfish enquanto a conta sincroniza, offline/recuperação, restauro, cancelamento, falha, e-mail/senha e criação de conta. `npm test` também verifica troca de conta durante filas, recusa de escrita após falha de leitura, contadores e reações. A proteção SQL foi revisada estaticamente; não se declara uma execução em Supabase real.
 
 ![Conta em celular — sessão e nuvem simuladas](conta-celular-simulada.png)

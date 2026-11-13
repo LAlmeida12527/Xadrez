@@ -88,6 +88,13 @@ try{
  await account(phone.page);await phone.page.locator('#syncNow').click();await phone.page.waitForFunction(()=>document.querySelector('#syncStatus').textContent.includes('Progresso sincronizado'));
  await pc.page.locator('#syncNow').click();await pc.page.waitForFunction(uid=>JSON.parse(localStorage.getItem('kiraChessProfile_v5:'+uid)).weaknessSession.hint===2,user.id);
  console.log('✓ PC → conta → celular em contexto separado: partida, PGN, Stockfish e treino recebidos; avanço do celular retorna ao PC.');
+ await pc.page.locator('#closeAuth').click();await nav(pc.page,'analyze');await pc.page.locator('#closeWeakness').click();
+ await pc.page.locator('#openPgnImport').click();await pc.page.locator('[data-pgn-example="all-phases"]').click();await pc.page.waitForFunction(()=>document.querySelector('#pgnInput').value.includes('Nc3'));await pc.page.locator('#confirmPgnImport').click();
+ await account(pc.page);await pc.page.locator('#syncNow').click();await pc.page.waitForFunction(()=>document.querySelector('#syncStatus').textContent.includes('Progresso sincronizado'));await pc.page.locator('#closeAuth').click();
+ await pc.page.waitForFunction(()=>document.querySelector('#analyzeGamePhases').textContent==='Stockfish concluído',null,{timeout:120000});
+ assert.equal((await profile(pc.page,user.id)).lastAnalysis.phaseEngine.moves.length,25);
+ await account(pc.page);await pc.page.locator('#syncNow').click();await pc.page.waitForFunction(()=>document.querySelector('#syncStatus').textContent.includes('Progresso sincronizado'));
+ console.log('✓ Análise Stockfish de 25 decisões continua e fica salva durante sincronização de uma conta conectada.');
  offline=true;await phone.page.locator('#syncNow').click();await phone.page.waitForFunction(()=>document.querySelector('#accountSync').dataset.state==='error');assert.match(await phone.page.locator('#syncStatus').innerText(),/local|navegador/);offline=false;
  await phone.page.locator('#syncNow').click();await phone.page.waitForFunction(()=>document.querySelector('#accountSync').dataset.state==='synced');
  await phone.page.screenshot({path:'work/auth-browser/mobile-account.png'});
@@ -98,7 +105,7 @@ try{
  phone.page.once('dialog',dialog=>dialog.accept());
  await phone.page.locator('#backupFileInput').setInputFiles({name:'backup.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(backup))});
  await phone.page.waitForEvent('load');
- assert.equal((await profile(phone.page,user.id)).gameArchive.length,2);
+ assert.equal((await profile(phone.page,user.id)).gameArchive.length,3);
  assert.equal(await phone.page.evaluate(()=>localStorage.getItem('kiraChessProfile_v5')),null);
  console.log('✓ Sem conexão: erro claro, cópia local e recuperação. Backup usa chaves do usuário e não apaga o histórico.');
  for(const mode of ['cancel','failure']){
