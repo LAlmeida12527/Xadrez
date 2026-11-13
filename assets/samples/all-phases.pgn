@@ -1,0 +1,4 @@
+[Event "Partida sintética de teste: três fases"]
+[Result "*"]
+
+1. Nc3 e5 2. Nf3 Qf6 3. Nxe5 Qxe5 4. d3 Qxc3+ 5. bxc3 c5 6. Be3 f6 7. Bxc5 Bxc5 8. f3 Bd6 9. d4 Bxh2 10. Rxh2 d6 11. Rxh7 Rxh7 12. e4 f5 13. exf5 Bxf5 14. Bd3 Bxd3 15. cxd3 Nc6 16. c4 Nxd4 17. c5 Nxf3+ 18. gxf3 dxc5 19. d4 cxd4 20. Qxd4 Nf6 21. Qxf6 gxf6 22. f4 f5 23. Rc1 Rh4 24. Rc5 Rxf4 25. Rxf5 *

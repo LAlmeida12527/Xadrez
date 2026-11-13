@@ -2718,3 +2718,127 @@ body.auth-open { overflow:hidden; }
 }
 .thinking-report{padding:24px}.thinking-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:18px}.thinking-metrics>div{padding:15px;border:1px solid #252a31;border-radius:11px;background:#0e1013}.thinking-metrics span{display:block;color:#8d949e;font-size:9px;text-transform:uppercase;letter-spacing:.1em}.thinking-metrics strong{display:block;font-size:22px;margin:7px 0 3px;letter-spacing:-.03em}.thinking-metrics small{color:#6f7680;font-size:9px}
 @media(max-width:760px){.thinking-metrics{grid-template-columns:1fr 1fr}.thinking-report{padding:17px}}
+
+.phase-diagnosis { display: grid; gap: 16px; }
+.phase-diagnosis-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: start; gap: 12px; }
+.phase-diagnosis-heading h2, .phase-card h3 { margin: 0 0 6px; }
+.phase-diagnosis-heading p, .phase-card p { margin: 0; }
+.phase-diagnosis > .secondary-button { justify-self: start; }
+.phase-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.phase-card { display: grid; align-content: start; gap: 9px; min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); }
+.phase-card-priority { border-color: var(--amber); }
+.phase-card h3 { font-size: 1rem; }
+.phase-card .phase-card-theme { color: var(--amber); }
+.phase-card .phase-example { display: grid; justify-items: start; gap: 4px; padding-top: 9px; border-top: 1px solid var(--line); }
+.phase-example .text-button { text-align: left; }
+@media (max-width: 760px) {
+  .phase-cards { grid-template-columns: 1fr; }
+}
+
+/* Personal training: a full board, immediate taps, and controls below it on phones. */
+.weakness-practice { padding: 22px; scroll-margin-top: 20px; border-color: #68313b; }
+.weakness-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:20px; }
+.weakness-heading h2 { margin:5px 0; }
+.weakness-workspace { display:grid; grid-template-columns:minmax(280px, 520px) minmax(240px, 1fr); gap:26px; align-items:start; }
+#weaknessBoard { width:100%; aspect-ratio:1; position:relative; touch-action:manipulation; }
+.weakness-coach { display:flex; align-items:center; gap:12px; }
+.weakness-coach img { border-radius:50%; object-fit:cover; }
+.weakness-coach h3 { margin:6px 0; font-size:20px; }
+.weakness-art { width:100%; height:110px; object-fit:cover; border-radius:12px; margin-top:16px; }
+.weakness-copy p { line-height:1.65; font-size:15px; }
+#weaknessFeedback { background:#1c171b; border-left:3px solid #b04355; padding:14px; min-height:80px; }
+.weakness-copy label { font-size:12px; margin-right:8px; }
+.weakness-copy select { background:#191b21; color:#eee; padding:8px; border:1px solid #49434b; border-radius:8px; }
+.weakness-actions { display:grid; grid-template-columns:1fr 1fr; gap:9px; margin-top:16px; }
+.weakness-actions button { min-height:48px; touch-action:manipulation; }
+#weaknessNext { grid-column:1/-1; }
+.chess-board { position:relative; }
+.response-arrow { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:4; animation:response-appear .4s ease-out; }
+.response-square { animation:response-flash .9s ease-out; }
+@keyframes response-appear { from { opacity:0; } to { opacity:1; } }
+@keyframes response-flash { 0%, 50% { box-shadow:inset 0 0 0 4px #c94d60; } 100% { box-shadow:inset 0 0 0 0 transparent; } }
+@media(max-width:760px) {
+  .weakness-practice { padding:12px; scroll-margin-top:10px; }
+  .weakness-workspace { grid-template-columns:minmax(0,1fr); gap:12px; }
+  .weakness-heading { align-items:start; gap:8px; }
+  .weakness-heading h2 { font-size:21px; }
+  .weakness-heading button { font-size:11px; padding:10px; }
+  .weakness-art { display:none; }
+  .weakness-coach img { width:48px; height:48px; }
+  .weakness-coach h3 { font-size:18px; }
+  .phase-cards { display:flex; overflow-x:auto; scroll-snap-type:x mandatory; padding-bottom:8px; }
+  .phase-card { flex:0 0 90%; scroll-snap-align:start; }
+  .phase-card button { min-height:44px; }
+  .review-board-shell { gap:6px; }
+  .review-board-side { min-width:0; }
+  .review-workspace { scroll-margin-top:12px; }
+  #trainWeakness { width:100%; min-height:50px; }
+}
+@media(prefers-reduced-motion:reduce) {
+  *, *::before, *::after { animation-duration:.001ms!important; transition-duration:.001ms!important; scroll-behavior:auto!important; }
+}
+.phase-diagnosis { padding:18px; }
+.phase-example .text-button { font-size:14px; line-height:1.5; color:#e4c2c9; }
+.training-active > .section-header, .training-active .review-summary, .training-active .phase-diagnosis,
+.training-active .review-workspace, .training-active .review-graph-panel, .training-active > .archive-panel,
+.training-active > .mistakes-panel { display:none; }
+.training-active .analysis-content { margin-top:0; }
+@media(max-width:760px) {
+  .weakness-practice { margin-top:10px; }
+  .weakness-heading .eyebrow { font-size:9px; }
+  .weakness-copy p { font-size:14px; margin:10px 0; }
+  .weakness-actions { padding-bottom:10px; }
+  #weaknessFeedback { min-height:0; }
+}
+.pgn-examples { display:flex; flex-wrap:wrap; gap:8px; margin:14px 0; }
+.pgn-examples span { flex-basis:100%; font-size:13px; color:#b8b3bb; }
+.pgn-examples button { padding:10px 12px; min-height:44px; }
+.response-arrow line { stroke-dasharray:1; animation:response-draw .45s ease-out; }
+@keyframes response-draw { from { stroke-dashoffset:1; } to { stroke-dashoffset:0; } }
+@media(max-width:760px) { .weakness-practice { scroll-margin-top:76px; } }
+.weakness-entry { display:flex; gap:22px; align-items:center; padding:20px; margin-bottom:20px; border-color:#60303b; }
+.weakness-entry > img { width:160px; height:160px; object-fit:cover; border-radius:12px; }
+.weakness-entry h2 { margin:6px 0; }
+.weakness-entry .primary-button { margin:14px 14px 0 0; min-height:48px; }
+.weakness-entry .text-button { display:inline-block; font-size:13px; margin-top:14px; }
+@media(max-width:760px) {
+  .weakness-entry { display:block; padding:16px; }
+  .weakness-entry > img { width:100%; height:120px; margin-bottom:12px; }
+  .weakness-entry .primary-button { width:100%; }
+}
+.google-sign-in { width:100%; display:flex; align-items:center; justify-content:center; gap:12px; padding:14px; min-height:50px; border-radius:10px; border:1px solid #55515a; background:#ece9e5; color:#201c21; font-weight:700; font-size:15px; }
+.google-sign-in span { font-size:22px; }
+.auth-divider { text-align:center; color:#9a949f; margin:16px 0; font-size:13px; }
+.account-sync, .guest-transfer { background:#17151b; border:1px solid #49353d; padding:16px; border-radius:12px; margin:14px 0; }
+.account-sync p, .guest-transfer p { line-height:1.5; font-size:14px; }
+.account-sync[data-state="error"] { border-color:#a6485a; }
+.guest-transfer h2 { font-size:20px; }
+.guest-transfer button { min-height:46px; margin-top:8px; }
+.guest-transfer .primary-button { width:100%; }
+#mobileAccountButton { margin-left:auto; min-height:40px; padding:8px 12px; order:2; }
+.auth-card { max-height:calc(100dvh - 24px); overflow-y:auto; }
+@media(max-width:760px) { .auth-card { padding:22px 18px; } .auth-signed-in { flex-wrap:wrap; } .mobile-header { gap:8px; } }
+.light-portrait { object-fit:cover; border-radius:50%; flex-shrink:0; transition:filter .16s ease; border:1px solid #5c303a; }
+.light-portrait[data-expression="alerta"] { border-color:#c14a5c; }
+.light-portrait[data-expression="satisfeito"], .light-portrait[data-expression="impressionado"] { border-color:#939f87; }
+.light-portrait[data-expression="reflexivo"] { filter:saturate(.85); }
+.light-summary { display:flex; align-items:start; gap:16px; padding:20px; margin-bottom:16px; border-color:#59323a; }
+.light-summary h2 { font-size:20px; margin-top:0; }
+.light-summary p { font-size:14px; line-height:1.6; }
+.live-toggle { display:flex; align-items:center; gap:8px; min-height:44px; }
+.live-toggle input { width:20px; height:20px; accent-color:#a63248; }
+.live-evaluation-panel { border:1px solid #47303a; background:#151219; padding:12px; border-radius:12px; margin-top:12px; }
+.live-evaluation-panel p { font-size:13px; line-height:1.5; margin:0 0 10px; }
+.live-evaluation-list { display:flex; gap:8px; overflow-x:auto; padding-bottom:5px; }
+.live-label { flex:0 0 auto; border:1px solid #69616a; border-radius:9px; padding:10px 12px; min-height:44px; background:#211c24; color:#f3e9ed; font-size:13px; }
+.live-label.blunder, .live-label.mistake { border-color:#c15265; color:#ffd0d6; }
+.live-label.pending { color:#aaa4ae; font-size:12px; }
+.live-explanation { padding:16px; margin:12px 0; scroll-margin-top:76px; }
+.live-explanation h2 { font-size:20px; }
+.live-explanation p, .live-explanation small { font-size:14px; line-height:1.6; }
+#liveExplanationBoard { width:min(100%,440px); aspect-ratio:1; margin:12px auto; }
+.live-explanation-actions { display:flex; gap:8px; margin-bottom:12px; }
+.end-recording { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:14px 0; }
+.end-recording label { font-size:12px; }
+.end-recording select { background:#1c1921; color:#eee; padding:10px; border-radius:8px; border:1px solid #51434c; }
+@media(max-width:760px) { .live-explanation .panel-heading { align-items:start; gap:10px; } .live-explanation-actions button { min-height:44px; padding:10px; } .play-controls { flex-wrap:wrap; } }

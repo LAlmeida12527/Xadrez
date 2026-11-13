@@ -28,7 +28,8 @@
       fenBefore: String(value.fenBefore || ''),
       fenAfter: String(value.fenAfter || ''),
       thinkingMs: value.thinkingMs == null ? null : Math.max(0, Number(value.thinkingMs) || 0),
-      classification: value.analysis?.classification?.label || value.classification || 'ok',
+      classification: value.liveEvaluation?.verified?.classification || value.analysis?.classification?.label || value.classification || 'ok',
+      liveEvaluation: value.liveEvaluation || null,
       loss: Math.max(0, Number(value.analysis?.classification?.loss ?? value.loss) || 0),
       likelyCause: value.analysis?.likelyCause || value.likelyCause || null,
       concepts: Array.isArray(value.analysis?.concepts) ? value.analysis.concepts.slice(0, 8) : Array.isArray(value.concepts) ? value.concepts.slice(0, 8) : []
@@ -51,6 +52,7 @@
       completedAt: game?.completedAt || new Date().toISOString(),
       result: game?.result || 'Empate',
       reason: game?.reason || null,
+      source: game?.source || null,
       botLevel: Math.max(0, Number(game?.botLevel) || 0),
       trainingFocus: game?.trainingFocus || null,
       pgn: String(pgn || ''),
@@ -93,12 +95,12 @@
   }
 
   function add(archive, item, limit) {
-    const max = Math.max(1, Math.min(100, Number(limit) || 24));
+    const max = limit === Infinity ? Infinity : Math.max(1, Math.min(100, Number(limit) || 24));
     const normalized = normalizeArchiveItem(item);
     const list = Array.isArray(archive) ? archive.map(normalizeArchiveItem) : [];
     const withoutDuplicate = list.filter((entry) => entry.id !== normalized.id);
     withoutDuplicate.push(normalized);
-    return withoutDuplicate.slice(-max);
+    return max === Infinity ? withoutDuplicate : withoutDuplicate.slice(-max);
   }
 
   function updateAnalysis(archive, archiveId, analysis) {

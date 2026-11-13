@@ -1,0 +1,6 @@
+[Event "Teste de padrão: dama sob ataque"]
+[SetUp "1"]
+[FEN "4k3/8/5n2/3Q4/8/8/8/4K3 w - - 0 10"]
+[Result "*"]
+
+10. Kd1 Nxd5 *

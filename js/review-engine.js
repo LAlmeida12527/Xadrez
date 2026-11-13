@@ -10,6 +10,7 @@
   if (!Core || !Analysis) throw new Error('Dependências da revisão não carregadas.');
 
   const CLASS_INFO = {
+    ok: { label: 'OK', short: 'OK', weight: 0, css: 'good' },
     book: { label: 'TEORIA', short: 'Teoria', weight: 0, css: 'book' },
     best: { label: 'MELHOR', short: 'Melhor', weight: 0, css: 'best' },
     excellent: { label: 'EXCELENTE', short: 'Excelente', weight: 0.1, css: 'excellent' },
@@ -95,6 +96,7 @@
     const initialEval = evalState(running);
     const positions = [{ ply: 0, fen: Core.toFEN(running), eval: initialEval, lastMove: null }];
     const steps = [];
+    const verifiedMoves = new Map((item.analysis?.phaseEngine?.moves || []).map((move) => [move.ply, move]));
 
     moves.forEach((entry, index) => {
       const ply = index + 1;
@@ -112,7 +114,9 @@
       let loss = lossForMover(beforeEval, afterEval, color);
       const stored = color === userColor ? normalizeStoredClass(entry.classification) : null;
       if (stored && Number(entry.loss) > loss) loss = Number(entry.loss) || loss;
-      const classification = stored || inferClass(loss, ply);
+      const verified = color === userColor ? verifiedMoves.get(ply) : null;
+      if (verified) loss = verified.loss * 10;
+      const classification = verified ? (verified.same ? 'best' : verified.classification) : stored || inferClass(loss, ply);
       const lastMove = move ? {
         fromRow: move.fromRow, fromCol: move.fromCol, toRow: move.toRow, toCol: move.toCol
       } : null;
@@ -130,6 +134,7 @@
         afterEval,
         loss,
         classification,
+        verified,
         likelyCause: entry.likelyCause || null,
         concepts: Array.isArray(entry.concepts) ? entry.concepts : [],
         thinkingMs: entry.thinkingMs == null ? null : Number(entry.thinkingMs),
@@ -138,7 +143,9 @@
       };
       const explanation = describeMove(step, userColor);
       step.title = explanation.title;
-      step.coachText = explanation.text;
+      step.coachText = verified
+        ? [verified.theme, verified.same ? 'O Stockfish também escolheu este lance.' : 'Lance comparado com a melhor alternativa encontrada pelo Stockfish.'].filter(Boolean).join('. ')
+        : explanation.text;
       steps.push(step);
       positions.push({ ply, fen: step.fenAfter, eval: afterEval, lastMove });
       running = after;
@@ -150,7 +157,9 @@
     const inaccuracies = userSteps.filter((step) => step.classification === 'inaccuracy').length;
     const meanLoss = userSteps.length ? userSteps.reduce((sum, step) => sum + Math.min(6, step.loss), 0) / userSteps.length : 0;
     const weightedIssues = userSteps.reduce((sum, step) => sum + (CLASS_INFO[step.classification]?.weight || 0), 0) / Math.max(1, userSteps.length);
-    const accuracy = Math.round(clamp(100 - (meanLoss * 10.5) - (weightedIssues * 3.2), 1, 100));
+    const accuracy = verifiedMoves.size
+      ? null
+      : Math.round(clamp(100 - (meanLoss * 10.5) - (weightedIssues * 3.2), 1, 100));
     const keyMoments = steps.filter((step) => step.key).map((step) => step.ply);
 
     return {

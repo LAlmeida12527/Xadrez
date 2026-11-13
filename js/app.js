@@ -16,11 +16,19 @@
   const EngineReview = window.KiraEngineReview;
   const Review = window.KiraReviewEngine;
   const Auth = window.KiraAuth;
+  const ProfileSync = window.KiraProfileSync;
   const Progress = window.KiraProgressEngine;
   const Portability = window.KiraDataPortability;
+  const PhaseDiagnosis = window.KiraPhaseDiagnosis;
+  const Weakness = window.KiraWeaknessTraining;
+  const Light = window.KiraLightReactions;
+  const Live = window.KiraLiveEvaluation;
+  let liveExplanation = null;
+  let weaknessSelected = null;
+  let weaknessLegal = [];
   const { StockfishService } = window.KiraStockfish;
 
-  if (!Core || !Analysis || !PlayerModel || !Openings || !CoachEngine || !CoachAI || !HumanBot || !Training || !PatternMemory || !Development || !Mistakes || !Archive || !EngineReview || !Review || !Auth || !Progress || !Portability || !StockfishService) {
+  if (!Core || !Analysis || !PlayerModel || !Openings || !CoachEngine || !CoachAI || !HumanBot || !Training || !PatternMemory || !Development || !Mistakes || !Archive || !EngineReview || !Review || !Auth || !Progress || !Portability || !PhaseDiagnosis || !Weakness || !StockfishService) {
     throw new Error('Falha ao carregar os módulos do Kira Chess.');
   }
 
@@ -28,8 +36,18 @@
   const LEGACY_PROFILE_KEY = 'kiraChessProfile_v3';
   const GAME_KEY = 'kiraChessCurrentGame_v5';
   let storageScope = 'guest';
+  let profileEpoch = 0;
   let authUser = null;
   let authConfigured = false;
+  let pendingAuthMessage = null;
+  let lastSyncStatus = { state: 'guest', text: 'Como convidado, o progresso fica neste navegador.' };
+  const newLocalId = () => globalThis.crypto?.randomUUID?.() || `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  const deviceId = localStorage.getItem('kiraDeviceId') || newLocalId();
+  localStorage.setItem('kiraDeviceId', deviceId);
+  const guestId = localStorage.getItem('kiraGuestId') || newLocalId();
+  localStorage.setItem('kiraGuestId', guestId);
+
+  const scrollBehavior = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth';
 
   const $ = (id) => document.getElementById(id);
 
@@ -104,6 +122,9 @@
   let openingSelected = null;
   let openingLegal = [];
   let reviewData = null;
+  let phaseAnalysisJob = null;
+  const phaseAnalysisErrors = new Map();
+  let pendingPhaseAnalysis = null;
   let reviewPly = 0;
   let reviewShowBest = false;
   let reviewBest = null;
@@ -119,6 +140,7 @@
   const stockfish = new StockfishService({
     onStatus: updateEngineStatus
   });
+  const liveQueue = new Live.Queue(stockfish);
 
   function deepClone(value) {
     return JSON.parse(JSON.stringify(value));
@@ -181,12 +203,16 @@
       patterns: { ...(value.patterns || {}) },
       patternMemory: { ...(value.patternMemory || {}) },
       thinking: { ...defaultProfile.thinking, ...(value.thinking || {}) },
-      recentMistakes: Array.isArray(value.recentMistakes) ? value.recentMistakes.slice(-80).map(Mistakes.normalizeMistake) : [],
-      gameArchive: Array.isArray(value.gameArchive) ? value.gameArchive.slice(-24).map(Archive.normalizeArchiveItem) : []
+      recentMistakes: Array.isArray(value.recentMistakes) ? value.recentMistakes.map(Mistakes.normalizeMistake) : [],
+      gameArchive: Array.isArray(value.gameArchive) ? value.gameArchive.map(Archive.normalizeArchiveItem) : []
     };
   }
 
   function saveProfile() {
+    let previous = {};
+    try { previous = JSON.parse(localStorage.getItem(profileStorageKey()) || '{}'); } catch (_) {}
+    if (storageScope === 'guest') profile._sync = { ...profile._sync, guestId };
+    profile = ProfileSync.stamp(profile, previous, deviceId);
     localStorage.setItem(profileStorageKey(), JSON.stringify(profile));
     if (authUser) Auth.queueProfileSave(profile, 850);
     refreshProfileUI();
@@ -281,7 +307,11 @@
     return 'Desafio forte';
   }
 
+  function isPhysicalGame() { return game?.source === 'physical'; }
+  function interactionColor() { return isPhysicalGame() ? game.state.turn : game.userColor; }
+
   function isGuidedGame() {
+    if (isPhysicalGame() || game?.liveEvaluation) return false;
     return game?.mode === 'coach' || game?.mode === 'opening';
   }
 
@@ -294,15 +324,18 @@
     const state = initialState ? Core.cloneState(initialState) : Core.createInitialState();
     const key = Core.repetitionKey(state);
     const evaluation = opts.source === 'evaluation';
+    const physical = !evaluation && (opts.source === 'physical' || (!opts.source && !initialState && $('gameType').value === 'physical'));
     const botLevel = evaluation ? 500 : (Number(opts.botLevel) || Number($('botLevel')?.value) || 500);
     const userColor = evaluation ? 'w' : selectedUserColor(opts.userColor);
     const mode = evaluation ? 'evaluation' : (opts.mode || selectedGameMode());
     return {
       version: 6,
+      id: newLocalId(),
+      liveEvaluation: !evaluation && Boolean(opts.liveEvaluation ?? $('liveEvaluationToggle').checked),
       state,
       history: [],
       positionCounts: { [key]: 1 },
-      botLevel,
+      botLevel: physical ? 0 : botLevel,
       userColor,
       mode,
       trainingFocus: opts.trainingFocus || null,
@@ -314,7 +347,7 @@
       reason: null,
       startedAt: new Date().toISOString(),
       completedAt: null,
-      source: opts.source || (initialState ? 'critical-replay' : 'standard'),
+      source: physical ? 'physical' : opts.source || (initialState ? 'critical-replay' : 'standard'),
       sourceMistakeId: opts.sourceMistakeId || null,
       reviewComplete: false,
       coachStep: null
@@ -322,12 +355,14 @@
   }
 
   function normalizeGame(input) {
-    if (!input || ![2, 3, 5].includes(input.version) || !input.state || !Array.isArray(input.history)) return null;
+    if (!input || ![2, 3, 5, 6].includes(input.version) || !input.state || !Array.isArray(input.history)) return null;
     return {
       ...input,
       version: 6,
+      id: input.id || newLocalId(),
+      liveEvaluation: Boolean(input.liveEvaluation),
       positionCounts: input.positionCounts || { [Core.repetitionKey(input.state)]: 1 },
-      botLevel: Number(input.botLevel) || 500,
+      botLevel: input.source === 'physical' ? 0 : Number(input.botLevel) || 500,
       userColor: input.userColor === 'b' ? 'b' : 'w',
       mode: input.mode || (input.source === 'evaluation' ? 'evaluation' : 'coach'),
       trainingFocus: input.trainingFocus || null,
@@ -364,14 +399,21 @@
     if (!game) return;
     const evaluation = isEvaluationGame();
     const guided = isGuidedGame();
+    const physical = isPhysicalGame();
+    $('gameType').value = physical ? 'physical' : 'bot';
+    document.querySelector('#view-play .mode-switch').classList.toggle('hidden', physical);
+    $('gameType').disabled = evaluation;
+    $('liveEvaluationToggle').checked = Boolean(game.liveEvaluation);
+    $('liveEvaluationToggle').disabled = evaluation;
+    $('finishRecording').disabled = evaluation || game.status !== 'playing' || !game.history.length;
     document.querySelectorAll('[data-game-mode]').forEach((button) => {
       button.classList.toggle('active', !evaluation && button.dataset.gameMode === game.mode);
-      button.disabled = evaluation;
+      button.disabled = evaluation || physical;
     });
     if ($('userColor')) $('userColor').disabled = evaluation;
     if ($('botLevel')) $('botLevel').disabled = evaluation;
     if ($('newGameButton')) $('newGameButton').disabled = evaluation;
-    if ($('botLevelLabel')) $('botLevelLabel').classList.toggle('hidden', evaluation);
+    if ($('botLevelLabel')) $('botLevelLabel').classList.toggle('hidden', evaluation || physical);
     if ($('coachQuickActions')) $('coachQuickActions').classList.toggle('hidden', !guided);
     if ($('coachSkipButton') && !guided) $('coachSkipButton').classList.add('hidden');
     if ($('playEyebrow')) $('playEyebrow').textContent = evaluation ? 'PARTIDA DE AVALIAÇÃO' : guided ? 'JOGAR COM LIGHT' : 'PARTIDA NORMAL';
@@ -387,14 +429,18 @@
     }
     if ($('botEloBadge')) {
       $('botEloBadge').textContent = evaluation ? 'Elo oculto' : `≈${game.botLevel} Elo`;
-      $('botEloBadge').classList.toggle('hidden', false);
+      $('botEloBadge').classList.toggle('hidden', physical);
     }
+    if (physical) { $('playEyebrow').textContent = 'TABULEIRO FÍSICO'; $('playTitle').textContent = 'Registre os lances dos dois lados.'; $('opponentName').textContent = 'Partida no tabuleiro físico'; $('botDescription').textContent = 'Toque na peça e no destino de cada lance, na ordem da partida.'; }
+    if (game.liveEvaluation) { $('playTitle').textContent = physical ? 'Seu tabuleiro, com avaliação ao vivo.' : 'Jogar contra o bot · avaliação ao vivo'; $('coachPanelKicker').textContent = 'LIGHT · STOCKFISH'; }
   }
 
   function startNewGame(options) {
     if (botTimer) clearTimeout(botTimer);
     botTimer = null;
     game = createGame(null, options);
+    liveExplanation = null; $('liveExplanation').classList.add('hidden');
+    $('reviewFinishedGame').classList.add('hidden');
     selected = null;
     legalForSelected = [];
     pendingMove = null;
@@ -414,11 +460,11 @@
     } else if (isGuidedGame()) {
       setCoach('Estou observando.', 'Quando o adversário jogar, eu vou ajudar você a organizar o raciocínio antes da resposta.');
     } else {
-      setCoach('Partida normal.', 'Nenhuma dica durante a partida. Depois eu volto para revisar as decisões importantes.');
+      setCoach(isPhysicalGame() ? 'Registre a partida.' : 'Partida normal.', game.liveEvaluation ? 'O Stockfish avalia cada lance em paralelo. Toque numa etiqueta pronta para entender a continuação.' : isPhysicalGame() ? 'Registre as jogadas dos dois lados no tabuleiro. Ao encerrar, você pode abrir o diagnóstico.' : 'Nenhuma dica durante a partida. Depois eu volto para revisar as decisões importantes.');
     }
 
-    if (game.state.turn === game.userColor) {
-      $('turnIndicator').textContent = 'Sua vez · arraste ou clique';
+    if (isPhysicalGame() || game.state.turn === game.userColor) {
+      $('turnIndicator').textContent = isPhysicalGame() ? `${game.state.turn === 'w' ? 'Brancas' : 'Pretas'} jogam · registre o lance` : 'Sua vez · arraste ou clique';
     } else {
       botThinking = true;
       $('turnIndicator').textContent = 'Adversário pensando';
@@ -468,7 +514,7 @@
         botTurn();
       }, 250);
     } else {
-      $('turnIndicator').textContent = 'Sua vez · arraste ou clique';
+      $('turnIndicator').textContent = isPhysicalGame() ? `${game.state.turn === 'w' ? 'Brancas' : 'Pretas'} jogam · registre o lance` : 'Sua vez · arraste ou clique';
       setCoach('Prove que entendeu.', 'Você voltou ao momento crítico. Encontre uma decisão melhor sem olhar a resposta antiga.');
     }
 
@@ -534,6 +580,7 @@
       'threefold-repetition': 'repetição tripla',
       'insufficient-material': 'material insuficiente',
       imported: 'partida importada',
+      'recording-ended': 'registro encerrado',
       'assessment-complete': 'janela de avaliação concluída'
     };
     return labels[reason] || 'fim de partida';
@@ -623,7 +670,7 @@
     saveGame();
     renderCoachObservation();
     if (window.innerWidth <= 760) {
-      setTimeout(() => $('coachPanel')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
+      setTimeout(() => $('coachPanel')?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' }), 120);
     }
   }
 
@@ -695,7 +742,7 @@
     $('gameBoard')?.classList.add('coach-ready');
     setTimeout(() => $('gameBoard')?.classList.remove('coach-ready'), 900);
     if (window.innerWidth <= 760) {
-      setTimeout(() => $('gameBoard')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 120);
+      setTimeout(() => $('gameBoard')?.scrollIntoView({ behavior: scrollBehavior(), block: 'center' }), 120);
     }
   }
 
@@ -709,7 +756,7 @@
     $('coachSkipButton')?.classList.add('hidden');
     setCoach('Sua vez.', 'Você pulou a leitura deste lance. Antes de mover, pelo menos faça uma verificação rápida: xeques, capturas, ameaças e peça menos ativa.');
     if (window.innerWidth <= 760) {
-      setTimeout(() => $('gameBoard')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 120);
+      setTimeout(() => $('gameBoard')?.scrollIntoView({ behavior: scrollBehavior(), block: 'center' }), 120);
     }
   }
 
@@ -819,7 +866,7 @@
 
     const isUser = byUser !== false;
     const before = Core.cloneState(game.state);
-    const risk = isUser ? Analysis.moveRisk(before, move) : null;
+    const risk = isUser && isGuidedGame() ? Analysis.moveRisk(before, move) : null;
 
     if (isUser && game.source !== 'mistake-review' && isGuidedGame() && !bypassCoach && risk) {
       pendingMove = move;
@@ -827,15 +874,15 @@
       return;
     }
 
-    const analysis = isUser ? Analysis.analyzeMove(before, move) : null;
-    const thinkingMs = isUser ? Math.max(0, Date.now() - moveStartedAt) : null;
+    const analysis = isUser && !game.liveEvaluation ? Analysis.analyzeMove(before, move) : null;
+    const thinkingMs = isUser && !isPhysicalGame() ? Math.max(0, Date.now() - moveStartedAt) : null;
     if (isUser) game.coachStep = null;
     const after = Core.makeMoveCopy(before, move);
     const notation = Core.sanNotation(before, move, after);
     const uci = Core.moveToUCI(move);
 
-    if (isUser && move.capture) game.materialWon += Analysis.pieceValue(move.capture);
-    if (!isUser && move.capture && Core.colorOf(move.capture) === game.userColor) game.materialLost += Analysis.pieceValue(move.capture);
+    if (Core.colorOf(move.piece) === game.userColor && move.capture) game.materialWon += Analysis.pieceValue(move.capture);
+    if (Core.colorOf(move.piece) !== game.userColor && move.capture && Core.colorOf(move.capture) === game.userColor) game.materialLost += Analysis.pieceValue(move.capture);
 
     game.state = after;
     coachHintLevel = 0;
@@ -843,6 +890,7 @@
     $('coachGuide')?.classList.add('hidden');
     game.history.push({ color: Core.colorOf(move.piece), notation, uci, move: { ...move }, fenBefore: Core.toFEN(before), fenAfter: Core.toFEN(after), thinkingMs, analysis });
     recordPosition();
+    if (game.liveEvaluation) enqueueLiveHistory(game);
     saveGame();
     renderGame();
 
@@ -852,6 +900,7 @@
     }
     if (isUser && completeEvaluationWindow()) return;
     if (checkGameEnd()) return;
+    if (isPhysicalGame()) { botThinking = false; moveStartedAt = Date.now(); $('turnIndicator').textContent = `${game.state.turn === 'w' ? 'Brancas' : 'Pretas'} jogam · registre o próximo lance`; return; }
 
     if (isUser) {
       $('turnIndicator').textContent = 'Adversário pensando';
@@ -865,26 +914,26 @@
         $('gameStatus').textContent = `Avaliação · ${decisions}/${EVALUATION_DECISIONS} decisões`;
         setCoach('Avaliação em andamento.', `Decisão ${decisions} de ${EVALUATION_DECISIONS}. Sem dicas durante a partida.`);
       } else {
-        setCoach('Adversário pensando.', 'Partida normal: nenhuma intervenção durante o jogo.');
+        setCoach('Adversário pensando.', game.liveEvaluation ? 'A avaliação roda em paralelo. Você pode explorar as etiquetas prontas sem alterar a partida.' : 'Partida normal: nenhuma intervenção durante o jogo.');
       }
       scheduleBotTurn();
     } else {
       botThinking = false;
       moveStartedAt = Date.now();
-      $('turnIndicator').textContent = 'Sua vez · arraste ou clique';
+      $('turnIndicator').textContent = isPhysicalGame() ? `${game.state.turn === 'w' ? 'Brancas' : 'Pretas'} jogam · registre o lance` : 'Sua vez · arraste ou clique';
       if (isGuidedGame()) {
         activateCoachObservation();
       } else if (isEvaluationGame()) {
         setCoach('Sua vez.', 'Jogue como você jogaria normalmente.');
       } else {
-        setCoach('Sua vez.', 'Sem ajuda durante a partida normal.');
+        setCoach('Sua vez.', game.liveEvaluation ? 'Continue jogando. A classificação aparece quando o Stockfish terminar o cálculo.' : 'Sem ajuda durante a partida normal.');
       }
     }
   }
 
   function botTurn() {
     botTimer = null;
-    if (!game || game.status !== 'playing' || game.state.turn === game.userColor) {
+    if (!game || isPhysicalGame() || game.status !== 'playing' || game.state.turn === game.userColor) {
       botThinking = false;
       return;
     }
@@ -945,6 +994,7 @@
 
   function finishGame() {
     const summary = Analysis.summarizeHistory(game.history, game.userColor);
+    if (game.liveEvaluation) for (const [field,label] of [['inaccuracies','inaccuracy'],['mistakes','mistake'],['blunders','blunder']]) summary[field] = game.history.filter(entry => entry.color === game.userColor && entry.liveEvaluation?.verified?.classification === label).length;
 
     if (game.source === 'critical-replay') {
       finishCriticalReplay(summary);
@@ -966,8 +1016,10 @@
     game.history.forEach((entry, index) => updatePatterns(entry, index, game.userColor));
     updateSkillsFromGame(summary);
     const analysis = buildAnalysis(summary);
+    if (game.liveEvaluation || game.history.some(entry => entry.liveEvaluation)) Object.assign(analysis, Live.snapshot(game.history, game.userColor), {liveEnabled:true,liveSessionId:game.id});
     const archiveItem = Archive.createArchiveItem(game, summary, pgnText(), analysis);
-    profile.gameArchive = Archive.add(profile.gameArchive, archiveItem, 24);
+    game.archiveId = archiveItem.id;
+    profile.gameArchive = Archive.add(profile.gameArchive, archiveItem, Infinity);
     profile.lastAnalysis = archiveItem.analysis;
 
     if (isEvaluationGame()) {
@@ -981,7 +1033,7 @@
       profile.baseline.summary = { accuracy: null, weakest: profile.assessment.primaryWeakness || 'change' };
       trainingState.mode = profile.assessment.primaryWeakness || 'change';
       profile.selectedOpening = Openings.recommended(profile.assessment)[0]?.id || null;
-    } else if (profile.assessment?.completed && game.source !== 'opening-practice' && game.source !== 'mistake-review') {
+    } else if (profile.assessment?.completed && !game.liveEvaluation && !isPhysicalGame() && game.source !== 'opening-practice' && game.source !== 'mistake-review') {
       profile.rating = updateTrainingRating(profile.rating, game.botLevel || profile.rating || 300, game.result);
       advanceMissionIfNeeded();
       const freshAssessment = PlayerModel.assessGame(game.history, game.userColor, summary);
@@ -994,6 +1046,7 @@
     saveProfile();
     saveGame();
     renderAnalysis();
+    $('reviewFinishedGame').classList.remove('hidden');
 
     $('turnIndicator').textContent = game.result;
     $('gameStatus').textContent = `${game.result} · ${reasonLabel(game.reason)}`;
@@ -1008,7 +1061,8 @@
       return;
     }
 
-    const message = game.result === 'Vitória'
+    const livePending = game.liveEvaluation && liveQueue.pending(livePrefix(game));
+    const message = livePending ? 'A partida terminou. As avaliações pendentes continuam em segundo plano e serão salvas no diagnóstico.' : game.result === 'Não informado' ? 'Registro concluído. Vamos examinar as decisões, sem presumir o resultado.' : game.result === 'Vitória'
       ? (summary.blunders > 0
         ? 'Você venceu. Não confunda o resultado com uma partida limpa; ainda há decisões para corrigir.'
         : 'Poucos erros graves. Desta vez o resultado acompanhou a qualidade das decisões.')
@@ -1212,6 +1266,7 @@
   }
 
   function setCoach(title, message) {
+    showLight($('playLightPortrait'), { pending: botThinking || Boolean(game?.liveEvaluation && liveQueue.pending(livePrefix(game))), stage: game?.status === 'ended' ? 'summary' : 'start' });
     $('coachStateTitle').textContent = title;
     $('coachMessage').textContent = message;
   }
@@ -1237,7 +1292,7 @@
   }
 
   function canInteractWithGame(showMessage) {
-    if (!game || game.status !== 'playing' || game.state.turn !== game.userColor || botThinking) return false;
+    if (!game || game.status !== 'playing' || (!isPhysicalGame() && (game.state.turn !== game.userColor || botThinking))) return false;
     if (coachObservationPending()) {
       if (showMessage) {
         $('coachPanel')?.classList.add('coach-attention');
@@ -1251,7 +1306,7 @@
 
   function movesFromSquare(row, col) {
     if (!game) return [];
-    return Core.generateLegalMoves(game.state, game.userColor).filter((move) => (
+    return Core.generateLegalMoves(game.state, interactionColor()).filter((move) => (
       move.fromRow === row && move.fromCol === col
     ));
   }
@@ -1280,7 +1335,7 @@
     if (!selectedPiece || Core.typeOf(selectedPiece) !== 'k') return null;
     if (row !== selected.row || ![0, 7].includes(col)) return null;
     const rook = game.state.board[row]?.[col];
-    if (!rook || Core.typeOf(rook) !== 'r' || Core.colorOf(rook) !== game.userColor) return null;
+    if (!rook || Core.typeOf(rook) !== 'r' || Core.colorOf(rook) !== interactionColor()) return null;
     const expectedToCol = col === 7 ? 6 : 2;
     return legalForSelected.find((move) => move.castle && move.toRow === row && move.toCol === expectedToCol) || null;
   }
@@ -1327,7 +1382,7 @@
     const row = Number(square.dataset.row);
     const col = Number(square.dataset.col);
     const piece = game.state.board[row]?.[col];
-    if (!piece || Core.colorOf(piece) !== game.userColor) return;
+    if (!piece || Core.colorOf(piece) !== interactionColor()) return;
 
     // Se o rei já está selecionado e o jogador toca na própria torre, preserve
     // a seleção do rei para que o clique seja interpretado como roque.
@@ -1383,7 +1438,7 @@
     if (chooseSelectedDestination(row, col)) return;
 
     const piece = game?.state.board[row]?.[col];
-    if (piece && Core.colorOf(piece) === game.userColor) {
+    if (piece && Core.colorOf(piece) === interactionColor()) {
       selected = { row, col };
       legalForSelected = movesFromSquare(row, col);
     } else {
@@ -1479,6 +1534,122 @@
         element.appendChild(square);
       }
     }
+    if (opts.arrow) {
+      const a = opts.arrow;
+      const point = (row, col) => orientation === 'b' ? [7.5 - col, 7.5 - row] : [col + .5, row + .5];
+      const [x1,y1] = point(a.fromRow,a.fromCol), [x2,y2] = point(a.toRow,a.toCol);
+      const id = `${element.id}-arrow`;
+      const overlay = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      overlay.setAttribute('viewBox', '0 0 8 8');
+      overlay.setAttribute('aria-hidden','true');
+      overlay.classList.add('response-arrow');
+      overlay.innerHTML = `<defs><marker id="${id}" markerWidth="3" markerHeight="3" refX="2" refY="1.5" orient="auto"><path d="M0,0 L3,1.5 L0,3 Z" fill="#c94d60"/></marker></defs><line pathLength="1" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#c94d60" stroke-width=".12" marker-end="url(#${id})"/>`;
+      element.appendChild(overlay);
+      for (const [r,c] of [[a.fromRow,a.fromCol],[a.toRow,a.toCol]]) element.querySelector(`[data-row="${r}"][data-col="${c}"]`)?.classList.add('response-square');
+    }
+  }
+
+  function livePrefix(target) { return `${storageScope}:${profileEpoch}:${target.id}`; }
+
+  function enqueueLiveHistory(target, retryErrors = false) {
+    if (!target) return;
+    const scope = storageScope, epoch = profileEpoch;
+    target.id ||= newLocalId();
+    const prefix = livePrefix(target);
+    target.history.forEach((entry, index) => {
+      if (!entry.uci || !entry.fenBefore || entry.liveEvaluation?.status === 'ready' || (entry.liveEvaluation?.status === 'error' && !retryErrors)) return;
+      liveQueue.enqueue({ key: `${prefix}:${index + 1}`, entry, ply: index + 1,
+        valid: () => storageScope === scope && profileEpoch === epoch && (game === target || profile.gameArchive.some(item => item.id === target.archiveId || item.analysis?.liveSessionId === target.id)),
+        onResult: () => {
+          if (game === target) { saveGame(); renderLiveEvaluation(); }
+          const archive = profile.gameArchive.find(item => item.id === target.archiveId || item.analysis?.liveSessionId === target.id);
+          if (!archive || archive.moves[index]?.uci !== entry.uci || archive.moves[index]?.fenBefore !== entry.fenBefore) return;
+          archive.moves[index].liveEvaluation = entry.liveEvaluation;
+          if (entry.liveEvaluation.verified) archive.moves[index].classification = entry.liveEvaluation.verified.classification;
+          const snapshot = Live.snapshot(archive.moves, archive.analysis?.userColor || target.userColor);
+          const verified = new Map((archive.analysis?.phaseEngine?.moves || []).map(move => [move.ply, move]));
+          snapshot.phaseEngine.moves.forEach(move => verified.set(move.ply, move));
+          archive.analysis = { ...archive.analysis, ...snapshot, phaseEngine: { moves: [...verified.values()].sort((a,b)=>a.ply-b.ply) }, liveEnabled: true, liveSessionId: target.id };
+          for (const [field,label] of [['inaccuracies','inaccuracy'],['mistakes','mistake'],['blunders','blunder']]) {
+            const count = archive.analysis.phaseEngine.moves.filter(move => move.classification === label).length;
+            profile.stats[field] = Math.max(0, (profile.stats[field] || 0) + count - (archive[field] || 0));
+            archive[field] = count;
+          }
+          if (profile.lastAnalysis?.archiveId === archive.id) profile.lastAnalysis = archive.analysis;
+          saveProfile();
+          if (currentReviewArchiveItem()?.id === archive.id) renderAnalysis();
+          if (game === target && game.status === 'ended' && !liveQueue.pending(prefix)) setCoach(`${game.result}.`, game.history.some(move => move.liveEvaluation?.status === 'error') ? 'Alguns lances não puderam ser avaliados. O registro foi preservado; você pode tentar novamente.' : 'As avaliações foram salvas. Toque nas etiquetas para estudar as respostas e abra o diagnóstico por fase.');
+        }
+      });
+    });
+  }
+
+  function resumeArchivedLive() {
+    for (const archive of profile.gameArchive) {
+      if (!archive.analysis?.liveEnabled || !archive.moves.some(entry => !entry.liveEvaluation || entry.liveEvaluation.status === 'pending')) continue;
+      if (game?.id === archive.analysis.liveSessionId) { enqueueLiveHistory(game); continue; }
+      enqueueLiveHistory({ id: archive.analysis.liveSessionId || archive.id, archiveId: archive.id, history: archive.moves, userColor: archive.analysis.userColor });
+    }
+  }
+
+  function renderLiveEvaluation() {
+    if (!game) return;
+    $('liveEvaluationPanel').classList.toggle('hidden', !game.liveEvaluation);
+    if (!game.liveEvaluation) return;
+    const ready = game.history.filter(entry => entry.liveEvaluation?.status === 'ready').length;
+    const errors = game.history.filter(entry => entry.liveEvaluation?.status === 'error').length;
+    $('liveEvaluationStatus').textContent = game.history.length
+      ? `Stockfish · ${ready} de ${game.history.length} lances avaliados.${errors ? ` ${errors} indisponível(is); tente novamente.` : ' Você pode continuar jogando durante o cálculo.'}`
+      : 'Stockfish · aguardando o primeiro lance. Registre a partida normalmente.';
+    $('retryLiveEvaluation').classList.toggle('hidden', !errors);
+    const list = $('liveEvaluationList');
+    const follow = game.history.length > Number(list.dataset.count || 0) || list.scrollWidth - list.clientWidth - list.scrollLeft < 48;
+    list.innerHTML = game.history.map((entry,index) => {
+      const result = entry.liveEvaluation;
+      const state = Core.parseFEN(entry.fenBefore);
+      const prefix = `${state.fullmove}${entry.color === 'b' ? '...' : '.'} ${entry.notation}`;
+      return result?.status === 'ready'
+        ? `<button class="live-label ${result.verified.classification}" data-live-ply="${index+1}" aria-label="${escapeHtml(prefix)}: ${escapeHtml(result.label)}. Explicar avaliação.">${escapeHtml(prefix)} · ${escapeHtml(result.label)}</button>`
+        : `<span class="live-label pending" data-live-pending="${index+1}">${escapeHtml(prefix)} · ${result?.status === 'error' ? 'Indisponível' : 'Calculando…'}</span>`;
+    }).join('');
+    list.dataset.count = String(game.history.length);
+    if (follow) list.scrollLeft = list.scrollWidth;
+    const last = game.history.at(-1)?.liveEvaluation;
+    showLight($('playLightPortrait'), {pending: game.history.some(entry => entry.liveEvaluation?.status === 'pending'), stage: game.status === 'ended' ? 'summary' : last?.verified?.reply ? 'reply' : 'start', confirmedThreat: Boolean(last?.verified?.reply)});
+  }
+
+  function openLiveExplanation(ply) {
+    const entry = game?.history[ply-1];
+    if (entry?.liveEvaluation?.status !== 'ready') return;
+    liveExplanation = { entry: JSON.parse(JSON.stringify(entry)), index: 0, orientation: game.userColor };
+    renderLiveExplanation();
+    $('liveExplanation').scrollIntoView({block:'start',behavior:'instant'});
+  }
+
+  function renderLiveExplanation() {
+    if (!liveExplanation) return;
+    const {entry,orientation} = liveExplanation;
+    const before = Core.parseFEN(entry.fenBefore);
+    let state = Core.makeMoveCopy(before, Core.moveFromUCI(before, entry.uci));
+    const line = entry.liveEvaluation.continuation || [];
+    liveExplanation.index = Math.min(liveExplanation.index, Math.max(0,line.length-1));
+    let arrow = null, text = '';
+    for (const uci of line.slice(0, liveExplanation.index+1)) {
+      const move = Core.moveFromUCI(state,uci); if (!move) break;
+      text = `Continuação possível das ${state.turn === 'w' ? 'brancas' : 'pretas'}: ${Weakness.words(state, uci, orientation)}.`;
+      state = Core.makeMoveCopy(state,move); arrow = move;
+    }
+    if (!line.length) {
+      const status = Core.gameStatus(state);
+      text = status.reason === 'checkmate' ? 'Este lance encerra a partida com xeque-mate. O adversário não tem resposta legal.'
+        : status.ended ? 'Este lance encerra a posição por empate. Não há continuação a jogar.' : 'O Stockfish não retornou uma continuação suficiente nesta avaliação. Nenhuma resposta foi inventada.';
+    }
+    $('liveExplanation').classList.remove('hidden');
+    $('liveExplanationTitle').textContent = `${entry.notation} · ${entry.liveEvaluation.label}`;
+    $('liveExplanationText').textContent = `Lance jogado: ${PhaseDiagnosis.describeMove(before,entry.uci)} (${entry.notation}). ${text}`;
+    renderBoard($('liveExplanationBoard'),state,{interactive:false,orientation,arrow});
+    $('nextLiveContinuation').disabled = !line.length || liveExplanation.index >= line.length-1;
+    $('restartLiveContinuation').disabled = !line.length || liveExplanation.index === 0;
   }
 
   function renderGame() {
@@ -1489,7 +1660,10 @@
       onClick: onGameSquare,
       orientation: game.userColor
     });
+    if (isPhysicalGame() && game.status === 'playing') $('turnIndicator').textContent = `${game.state.turn === 'w' ? 'Brancas' : 'Pretas'} jogam · registre o lance`;
     renderMoveLog();
+    renderLiveEvaluation();
+    $('finishRecording').disabled = isEvaluationGame() || game.status !== 'playing' || !game.history.length;
     renderCoachObservation();
 
     const material = Core.materialScore(game.state);
@@ -1528,7 +1702,7 @@
     if (chooseSelectedDestination(row, col)) return;
 
     const piece = game.state.board[row][col];
-    if (piece && Core.colorOf(piece) === game.userColor) {
+    if (piece && Core.colorOf(piece) === interactionColor()) {
       selected = { row, col };
       legalForSelected = movesFromSquare(row, col);
       renderGame();
@@ -1566,7 +1740,8 @@
     if (game.status === 'ended') {
       if (game.result === 'Empate') text += '1/2-1/2';
       else if (game.result === 'Vitória') text += game.userColor === 'w' ? '1-0' : '0-1';
-      else text += game.userColor === 'w' ? '0-1' : '1-0';
+      else if (game.result === 'Derrota') text += game.userColor === 'w' ? '0-1' : '1-0';
+      else text += '*';
     }
     return text.trim();
   }
@@ -1712,6 +1887,12 @@
   }
 
   function renderTraining() {
+    const source = currentReviewArchiveItem();
+    const available = source && Weakness.build([source], null, profile.gameArchive, profile.weaknessSeen || []);
+    const resume = Boolean(profile.weaknessSession?.items?.length);
+    $('trainFromHistory').disabled = !resume && !available;
+    $('trainFromHistory').textContent = resume ? 'Continuar treino' : 'Treinar meu ponto fraco';
+    $('weaknessEntryText').textContent = resume ? 'Seu treino ficou salvo. Continue da posição em que parou.' : available ? 'Comece por um erro da partida selecionada, entenda a resposta adversária e aplique o mesmo padrão em outra posição quando disponível.' : 'Importe uma partida para transformar um erro em treino. Você também pode usar os exemplos do importador.';
     const assessed = Boolean(profile.assessment?.completed);
     $('trainingLocked')?.classList.toggle('hidden', assessed);
     $('trainingExperience')?.classList.toggle('hidden', !assessed);
@@ -1765,7 +1946,7 @@
     $('exerciseFeedbackTitle').textContent = title;
     $('exerciseFeedbackText').textContent = text;
     if (window.innerWidth <= 760) {
-      setTimeout(() => box.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80);
+      setTimeout(() => box.scrollIntoView({ behavior: scrollBehavior(), block: 'center' }), 80);
     }
   }
 
@@ -1955,7 +2136,7 @@
     analysis.imported = true;
     analysis.userColor = side;
     const archiveItem = Archive.createArchiveItem(importedGame, summary, raw, analysis);
-    profile.gameArchive = Archive.add(profile.gameArchive, archiveItem, 24);
+    profile.gameArchive = Archive.add(profile.gameArchive, archiveItem, Infinity);
     profile.lastAnalysis = archiveItem.analysis;
 
     saveProfile();
@@ -1963,7 +2144,7 @@
     $('pgnInput').value = '';
     renderAnalysis();
     switchView('analyze');
-    showToast('Partida real analisada. Seu treino foi atualizado pelos erros encontrados.');
+    showToast('Partida importada. O diagnóstico com Stockfish aparece na revisão.');
   }
 
   function mistakeLabel(label) {
@@ -2016,7 +2197,7 @@
             <strong>${escapeHtml(item.result)}</strong>
           </div>
           <div class="archive-meta">
-            <span>${item.reason === 'imported' ? 'Partida importada' : `Bot ≈${item.botLevel || '—'}`}</span>
+            <span>${item.source === 'physical' ? 'Tabuleiro físico' : item.reason === 'imported' ? 'Partida importada' : `Bot ≈${item.botLevel || '—'}`}</span>
             <span>${issueCount} decisão(ões) para revisar</span>
             <span>${item.moves.length} meio-lance(s)</span>
           </div>
@@ -2037,7 +2218,8 @@
     saveProfile();
     reviewData = null;
     renderAnalysis();
-    $('analysisContent')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    $('analysisContent')?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
+    if (!phaseAnalysisErrors.has(`${storageScope}:${archiveId}`)) void analyzeGamePhases();
     showToast('Partida aberta na revisão.');
   }
 
@@ -2201,9 +2383,11 @@
       $('reviewCoachText').textContent = reviewRetryMessage?.text || `Voltei para antes de ${step?.notation || 'seu lance'}. Encontre uma alternativa sem olhar a resposta.`;
     } else if (reviewShowBest && step) {
       $('reviewMoveTitle').textContent = `Antes de ${step.notation}: havia uma alternativa melhor.`;
-      $('reviewCoachText').textContent = reviewBest ? `A revisão local prefere ${reviewBest.san}. Olhe as casas marcadas e tente entender a função do lance antes de decorar a notação.` : 'Não encontrei uma alternativa confiável nesta posição.';
+      $('reviewCoachText').textContent = reviewBest ? `${step.verified ? 'Stockfish' : 'A revisão local'} sugere: ${PhaseDiagnosis.describeMove(state, reviewBest.uci)}. Origem e destino estão marcados no tabuleiro.` : 'Não encontrei uma alternativa confiável nesta posição.';
     } else if (step) {
-      $('reviewMoveTitle').textContent = step.title;
+      $('reviewMoveTitle').textContent = step.verified
+        ? PhaseDiagnosis.describeMove(Core.parseFEN(step.fenBefore), step.uci) || step.title
+        : step.title;
       $('reviewCoachText').textContent = step.coachText;
     } else {
       $('reviewMoveTitle').textContent = 'Vamos revisar.';
@@ -2212,7 +2396,7 @@
 
     const bestLine = $('reviewBestLine');
     if (reviewShowBest && reviewBest) {
-      bestLine.innerHTML = `<span>MELHOR ALTERNATIVA</span><strong>${escapeHtml(reviewBest.san)}</strong><small>${escapeHtml(reviewBest.uci)}</small>`;
+      bestLine.innerHTML = `<span>MELHOR ALTERNATIVA</span><strong>${escapeHtml(PhaseDiagnosis.describeMove(state, reviewBest.uci))}</strong><small>${escapeHtml(reviewBest.san)}</small>`;
       bestLine.classList.remove('hidden');
     } else {
       bestLine.classList.add('hidden');
@@ -2227,8 +2411,254 @@
     bestButton.disabled = !step;
     bestButton.textContent = reviewShowBest ? 'VOLTAR AO LANCE' : 'MOSTRAR MELHOR LANCE';
 
+    const before = step ? Core.parseFEN(step.fenBefore) : null;
+    const played = before && Core.moveFromUCI(before, step.uci);
+    const after = played && Core.makeMoveCopy(before, played);
+    const response = after && step.verified?.reply && Core.moveFromUCI(after, step.verified.reply);
+    const issue = step && ['inaccuracy','mistake','blunder'].includes(step.classification);
+    const stage = reviewRetryState ? reviewRetryPreview ? 'retry' : 'calculate' : reviewShowBest ? 'solution' : reviewPly === reviewData.moves.length ? 'summary' : issue && response ? 'reply' : 'start';
+    showLight($('reviewLightPortrait'), { pending: Boolean(phaseAnalysisJob) || liveQueue.keys.size > 0, stage, confirmedThreat: Boolean(response) });
+    if (!phaseAnalysisJob && response && issue && !reviewShowBest && !reviewRetryState) $('reviewCoachText').textContent += ` Depois desse lance, ${Weakness.words(after, step.verified.reply, reviewData.userColor)}.`;
     renderReviewMoveList();
     renderReviewGraph();
+  }
+
+  function startWeaknessTraining(archiveId, ply) {
+    const source = archiveId ? profile.gameArchive.find((g) => g.id === archiveId) : currentReviewArchiveItem();
+    if (!source) return;
+    const session = Weakness.build([source], ply ? { archiveId: source.id, ply } : null, profile.gameArchive, profile.weaknessSeen || []);
+    if (!session) { showToast('Ainda não há uma alternativa válida para treinar esse lance.'); return; }
+    profile.weaknessSession = session;
+    weaknessSelected = null;
+    weaknessLegal = [];
+    saveProfile();
+    switchView('analyze');
+    renderWeaknessTraining();
+    $('weaknessPractice').scrollIntoView({ block: 'start', behavior: 'instant' });
+  }
+
+  function showLight(element, context) {
+    if (!element) return;
+    const expression = Light.expression(context);
+    if (element.dataset.expression !== expression) {
+      element.dataset.expression = expression;
+      element.src = Light.portrait(expression);
+      element.alt = `Light ${expression}`;
+    }
+  }
+
+  function renderWeaknessTraining() {
+    const session = profile.weaknessSession;
+    const item = session?.items?.[session.index];
+    $('weaknessPractice').classList.toggle('hidden', !item);
+    $('view-analyze').classList.toggle('training-active', Boolean(item));
+    const summary = profile.weaknessSummary;
+    $('weaknessSummaryPanel').classList.toggle('hidden', Boolean(item) || !summary || summary.dismissed);
+    if (summary) $('weaknessSummaryText').textContent = `Você reviu ${summary.positions} posições e encontrou ${summary.found} alternativas antes de revelar a solução. Na próxima partida, confira as ameaças antes de confirmar seu lance.`;
+    if (!item) return;
+    const { state, after, reply, best } = Weakness.context(item);
+    let shown = state, arrow = null;
+    if (session.display === 'reply' && reply) { shown = Core.makeMoveCopy(after, reply); arrow = reply; }
+    if (session.display === 'solution' && best) { shown = Core.makeMoveCopy(state, best); arrow = best; }
+    const attempt = session.attempt && Core.moveFromUCI(state, session.attempt);
+    if (session.display === 'attempt' && attempt) { shown = Core.makeMoveCopy(state, attempt); arrow = attempt; }
+    const relation = session.hint >= 2 && reply && item.key !== 'mate-missed' && session.display === 'start' ? reply : null;
+    if (relation) { arrow = relation; shown = after; }
+    const look = reply ? Core.squareName(reply.fromRow, reply.fromCol) : best ? Core.squareName(best.fromRow, best.fromCol) : null;
+    renderBoard($('weaknessBoard'), shown, { orientation: state.turn, interactive: session.display === 'start' && !relation,
+      onClick: onWeaknessSquare, selected: weaknessSelected, legal: weaknessLegal,
+      hintSquare: session.hint > 0 && session.display === 'start' ? look : null, arrow });
+    $('weaknessStep').textContent = `${session.index + 1} / ${session.items.length} · ${session.index === 0 ? 'SEU ERRO REAL' : 'APLICAR EM POSIÇÃO NOVA'}`;
+    $('weaknessPosition').textContent = `${item.phase} · ${item.source} · ${state.turn === 'w' ? 'Você joga de brancas' : 'Você joga de pretas'}`;
+    $('weaknessPrompt').textContent = session.index === 0
+      ? `Antes de ${state.fullmove}${state.turn === 'b' ? '...' : '.'} ${PhaseDiagnosis.describeMove(state, item.probe)}. Toque na peça e no destino para encontrar uma alternativa.`
+      : 'A posição mudou; o padrão é o mesmo. Encontre uma resposta sem repetir o erro. Toque na peça e depois no destino.';
+    let text = session.message || 'Sua vez. Procure xeques, capturas e ameaças antes de escolher.';
+    if (session.display === 'reply') text = `Depois de ${Weakness.words(state, item.probe)}, ${Weakness.words(after, item.reply, state.turn)}. A seta mostra a resposta possível do adversário.`;
+    else if (session.display === 'solution') text = `Solução: ${Weakness.words(state, item.best)}. A resposta foi aplicada no tabuleiro. ${item.key === 'mate-missed' ? 'Confira como as casas de fuga do rei ficaram fechadas.' : 'Compare essa posição com a resposta adversária ao erro original.'}`;
+    else if (session.display === 'attempt' && session.solved) text = session.message;
+    else if (session.hint === 1) text = `Onde olhar: observe ${look || 'o rei e as peças sem defesa'}. A casa está destacada. Não escolha um lance ainda; siga os ataques dessa peça.`;
+    else if (session.hint >= 2) text = item.key === 'mate-missed' ? 'Existe uma rede de mate: seu rei limita as fugas. Procure um xeque que feche as casas restantes.' : reply ? `A ameaça: depois do lance original, ${Weakness.words(after, item.reply, state.turn)}. Como você pode evitar essa continuação?` : 'Procure os xeques e as casas de fuga do rei. Depois compare a atividade das suas peças. Não há uma resposta adversária verificada disponível para este lance.';
+    if (weaknessSelected && !session.hint && !session.message) text = 'Agora calcule: depois da sua mudança, quais xeques, capturas ou ameaças o adversário teria?';
+    const pending = Boolean(phaseAnalysisJob) || liveQueue.keys.size > 0;
+    const stage = session.display === 'attempt' && session.solved ? 'solved' : session.display === 'solution' ? 'solution' : session.display === 'reply' ? 'reply' : session.hint === 1 ? 'hint1' : session.hint >= 2 ? 'hint2' : session.lastOutcome === 'retry' ? 'retry' : weaknessSelected ? 'calculate' : 'start';
+    const decisive = session.display === 'attempt' && Core.gameStatus(shown).reason === 'checkmate';
+    showLight($('weaknessLightPortrait'), { pending, stage, confirmedThreat: Boolean(reply), verified: item.source === 'Stockfish', decisive, unassisted: !session.hint && !session.revealed && !session.hadMiss });
+    if (pending) text = 'Estou atento. A análise ainda está em andamento; vou esperar a confirmação antes de reagir ao resultado.';
+    $('weaknessFeedback').textContent = text;
+    const promotion = Core.generateLegalMoves(state, state.turn).some((m) => m.promotion);
+    $('weaknessPromotion').hidden = !promotion;
+    document.querySelector('label[for="weaknessPromotion"]').hidden = !promotion;
+    $('weaknessReset').textContent = relation ? 'Voltar e responder' : 'Tentar novamente';
+    if (relation) $('weaknessPosition').textContent += ' · Após o lance original: observe a relação e use Voltar e responder.';
+    $('weaknessHint').textContent = session.hint ? 'Dica 2 · Entender a ameaça' : 'Dica 1 · Onde olhar';
+    $('weaknessHint').disabled = session.hint >= 2 || session.display !== 'start';
+    $('weaknessReply').disabled = !reply;
+    $('weaknessNext').disabled = !session.solved;
+    $('weaknessNext').textContent = session.index + 1 < session.items.length ? 'Aplicar em posição nova →' : 'Concluir treino';
+    if (session.items.length === 1) $('weaknessPosition').textContent += ' · Ainda não há outra posição inédita deste padrão na biblioteca.';
+  }
+
+  function weaknessAction(action) {
+    const session = profile.weaknessSession;
+    if (!session) return;
+    if (action === 'hint') session.hint = Math.min(2, session.hint + 1);
+    if (action === 'reply') session.display = 'reply';
+    if (action === 'solution') { session.display = 'solution'; session.solved = true; session.revealed = true; }
+    if (action === 'reset') { session.display = 'start'; session.hint = 0; session.solved = false; session.message = ''; session.attempt = null; session.lastOutcome = null; session.revealed = false; }
+    if (action === 'next') {
+      if (!session.solved) return;
+      session.results ||= {};
+      session.results[session.index] = { played: Boolean(session.attempt && !session.revealed), hints: session.hint };
+      if (session.index + 1 < session.items.length) { session.index++; profile.weaknessSeen = [...new Set([...(profile.weaknessSeen || []), session.items[session.index].id])]; session.hint = 0; session.solved = false; session.display = 'start'; session.message = ''; session.attempt = null; session.lastOutcome = null; session.revealed = false; }
+      else { const results = Object.values(session.results); profile.weaknessSummary = { at: new Date().toISOString(), positions: results.length, found: results.filter(r=>r.played).length }; profile.weaknessSession = null; showLight($('reviewLightPortrait'), {stage:'summary'}); showToast(`Treino concluído: ${results.length} posições revistas, ${profile.weaknessSummary.found} alternativas encontradas antes de revelar.`); }
+    }
+    weaknessSelected = null; weaknessLegal = [];
+    saveProfile(); renderWeaknessTraining();
+  }
+
+  function onWeaknessSquare(row, col) {
+    const session = profile.weaknessSession;
+    if (!session || session.display !== 'start') return;
+    const item = session.items[session.index];
+    const { state } = Weakness.context(item);
+    const candidates = weaknessLegal.filter((m) => m.toRow === row && m.toCol === col);
+    const move = candidates.find((m) => !m.promotion || m.promotion === $('weaknessPromotion').value);
+    if (move) {
+      const uci = Core.moveToUCI(move);
+      if (uci === item.best) { session.lastOutcome = 'solved'; session.solved = true; session.attempt = uci; session.display = 'attempt'; session.message = `Isso: ${Weakness.words(state, uci)}. Você encontrou a alternativa deste exercício.`; }
+      else { session.lastOutcome = 'retry'; session.hadMiss = true; session.hint = 0; session.message = `${Weakness.words(state, uci)} é legal. Compare com a ameaça; ainda não é a alternativa proposta neste exercício. Você pode tentar de novo ou ver a solução.`; }
+      weaknessSelected = null; weaknessLegal = []; saveProfile(); renderWeaknessTraining(); return;
+    }
+    if (state.board[row][col] && Core.colorOf(state.board[row][col]) === state.turn) {
+      weaknessSelected = { row, col };
+      weaknessLegal = Core.generateLegalMoves(state, state.turn).filter((m) => m.fromRow === row && m.fromCol === col);
+    } else { weaknessSelected = null; weaknessLegal = []; }
+    renderWeaknessTraining();
+  }
+
+  function renderPhaseDiagnosis(source) {
+    const history = !source;
+    const report = PhaseDiagnosis.summarize(history ? profile.gameArchive : [source], { history });
+    const summary = history ? $('phaseHistorySummary') : $('phaseGameSummary');
+    const cards = history ? $('phaseHistoryCards') : $('phaseGameCards');
+    const origin = report.source === 'stockfish' ? 'Stockfish' : 'estimativa local';
+    if (!report.games) {
+      summary.textContent = 'Jogue uma partida ou importe um PGN para começar.';
+      cards.innerHTML = '';
+      return;
+    }
+    const focus = report.weak
+      ? history ? `Seu ponto mais fraco na amostra é ${report.weak.name.toLowerCase()}.`
+        : `Nesta partida, você teve mais dificuldade em ${report.weak.name.toLowerCase()}.`
+      : history ? 'Ainda não apareceu uma fase claramente mais fraca.'
+        : 'Nesta partida, os dados ainda não apontam uma fase claramente mais fraca.';
+    summary.textContent = (report.smallSample ? 'Amostra pequena · conclusão provisória. ' : '') + (history
+      ? `${focus} ${report.games} ${report.human ? 'partida(s) humana(s)' : 'partida(s) no Kira'} · ${origin}.`
+      : `${focus} Fonte: ${origin}.`);
+    if (!history) {
+      const available = Weakness.build([source], null, profile.gameArchive, profile.weaknessSeen || []);
+      $('trainWeakness').disabled = !available;
+      $('weaknessAvailability').textContent = available ? 'Comece por um erro seu. Depois, aplique o padrão em outra posição quando houver uma disponível.' : 'O treino aparece quando houver um erro com uma alternativa válida. Você pode importar outra partida.';
+    }
+
+    cards.innerHTML = report.phases.map((phase) => {
+      const priority = report.weak?.id === phase.id;
+      const counts = phase.moves
+        ? `${phase.moves} lances seus · ${phase.inaccuracies} imprecisões · ${phase.mistakes} erros · ${phase.blunders} erros graves`
+        : 'Sem lances avaliados nesta fase.';
+      const smallSample = phase.moves && (history ? phase.moves < 8 || phase.games < 2 : phase.moves < 3);
+      return `<article class="phase-card${priority ? ' phase-card-priority' : ''}">
+        <h3>${phase.name}</h3>
+        <p class="analysis-copy">${counts}${smallSample ? ' · amostra pequena' : ''}</p>
+        ${phase.theme ? `<p class="phase-card-theme">${escapeHtml(phase.theme[0])} · ${phase.theme[1]} lance(s)</p>` : ''}
+        ${priority ? `<p class="analysis-copy">${phase.practice}</p>` : ''}
+        ${phase.examples.map((example) => `<div class="phase-example">
+          <button class="text-button" data-phase-game="${escapeHtml(example.archiveId)}" data-phase-ply="${example.ply}">Ver ${example.number} ${escapeHtml(example.move)}</button>
+          <button class="secondary-button" data-train-game="${escapeHtml(example.archiveId)}" data-train-ply="${example.ply}">Treinar este lance</button>
+          ${example.reply ? `<small>Resposta possível: ${escapeHtml(example.reply)}.</small>` : ''}
+          ${example.best ? `<small>Alternativa: ${escapeHtml(example.best)}.</small>` : ''}
+        </div>`).join('')}
+      </article>`;
+    }).join('');
+  }
+
+  function renderPhaseEngineStatus(source) {
+    const button = $('analyzeGamePhases');
+    const status = $('phaseEngineStatus');
+    const job = phaseAnalysisJob;
+    const running = job?.scope === storageScope && job.archiveId === source.id;
+    if (running) { showLight($('reviewLightPortrait'), {pending:true}); showLight($('weaknessLightPortrait'), {pending:true}); }
+    const error = phaseAnalysisErrors.get(`${storageScope}:${source.id}`);
+    const total = PhaseDiagnosis.positions(source).length;
+    const checked = source.analysis?.phaseEngine?.moves?.length || 0;
+    const complete = total > 0 && checked >= total;
+    const liveRunning = !complete && source.analysis?.liveSessionId && liveQueue.pending(`${storageScope}:${profileEpoch}:${source.analysis.liveSessionId}`);
+    button.disabled = Boolean(job) || Boolean(liveRunning) || !total || complete;
+    button.textContent = running || liveRunning ? 'Analisando…' : complete ? 'Stockfish concluído' : error ? 'Tentar Stockfish de novo' : 'Analisar com Stockfish';
+    status.textContent = running ? `Stockfish · ${job.checked} de ${job.total} lances seus avaliados.`
+      : liveRunning ? `Stockfish ao vivo · ${checked} de ${total} lances seus avaliados.` : error ? error : complete ? `Stockfish · ${checked} lances seus avaliados.` : '';
+    status.classList.toggle('hidden', !status.textContent);
+  }
+
+  async function analyzeGamePhases() {
+    const source = currentReviewArchiveItem();
+    if (!source) return;
+    if (source.analysis?.liveSessionId && liveQueue.pending(`${storageScope}:${profileEpoch}:${source.analysis.liveSessionId}`)) return;
+    if (phaseAnalysisJob) {
+      if (phaseAnalysisJob.archiveId !== source.id || phaseAnalysisJob.scope !== storageScope) {
+        pendingPhaseAnalysis = { archiveId: source.id, scope: storageScope };
+      }
+      return;
+    }
+    const positions = PhaseDiagnosis.positions(source);
+    if (!positions.length || source.analysis?.phaseEngine?.moves?.length >= positions.length) return;
+    const job = { scope: storageScope, epoch: profileEpoch, archiveId: source.id, total: positions.length, checked: 0 };
+    const key = `${job.scope}:${job.archiveId}`;
+    phaseAnalysisJob = job;
+    phaseAnalysisErrors.delete(key);
+    renderPhaseEngineStatus(source);
+    const moves = [];
+    try {
+      for (const position of positions) {
+        const result = await stockfish.compareMove(position.fenBefore, position.uci, { depth: 11, multipv: 1 });
+        if (profileEpoch !== job.epoch || storageScope !== job.scope) return;
+        moves.push(PhaseDiagnosis.verifiedMove(position, result));
+        job.checked = moves.length;
+        if (profile.lastAnalysis?.archiveId === source.id) renderPhaseEngineStatus(source);
+      }
+      const current = profile.gameArchive.find((item) => item.id === source.id || ProfileSync.gameKey(item) === ProfileSync.gameKey(source));
+      if (!current) return;
+      const analysis = { ...current.analysis, archiveId: current.id, phaseEngine: { moves } };
+      profile.gameArchive = Archive.updateAnalysis(profile.gameArchive, current.id, analysis);
+      if (profile.lastAnalysis?.archiveId === current.id) profile.lastAnalysis = analysis;
+      saveProfile();
+    } catch (error) {
+      if (profileEpoch === job.epoch && storageScope === job.scope) phaseAnalysisErrors.set(key, 'O Stockfish ficou indisponível. Você pode tentar novamente. A estimativa local continua visível.');
+      console.warn('Não foi possível concluir o diagnóstico por fase.', error);
+    } finally {
+      phaseAnalysisJob = null;
+      const selected = currentReviewArchiveItem();
+      if (selected && (selected.id === source.id || ProfileSync.gameKey(selected) === ProfileSync.gameKey(source)) && storageScope === job.scope) {
+        resetReviewInteraction();
+        renderAnalysis();
+      } else if (selected) renderPhaseEngineStatus(selected);
+      const pending = pendingPhaseAnalysis;
+      pendingPhaseAnalysis = null;
+      if (pending?.scope === storageScope && pending.archiveId === selected?.id) void analyzeGamePhases();
+    }
+  }
+
+  function openPhaseExample(event) {
+    const train = event.target.closest('[data-train-ply]');
+    if (train) { startWeaknessTraining(train.dataset.trainGame, Number(train.dataset.trainPly)); return; }
+    const button = event.target.closest('[data-phase-ply]');
+    if (!button) return;
+    if (currentReviewArchiveItem()?.id !== button.dataset.phaseGame) openArchivedAnalysis(button.dataset.phaseGame);
+    if (reviewData?.archiveId !== button.dataset.phaseGame) return;
+    switchView('analyze');
+    goToReviewPly(button.dataset.phasePly);
+    requestAnimationFrame(() => $('reviewWorkspace').scrollIntoView({ block: 'start', behavior: 'instant' }));
   }
 
   function renderAnalysis() {
@@ -2252,9 +2682,13 @@
     } else reviewPly = Math.min(reviewPly, reviewData.moves.length);
 
     $('analysisResult').textContent = source.result || '—';
-    $('analysisAccuracy').textContent = `${reviewData.accuracy}%`;
-    $('analysisMistakesCount').textContent = String(reviewData.mistakes + reviewData.inaccuracies);
+    $('analysisAccuracy').textContent = reviewData.accuracy == null ? '—' : `${reviewData.accuracy}%`;
+    $('analysisAccuracy').parentElement.classList.toggle('hidden', reviewData.accuracy == null);
+    $('analysisMistakesCount').textContent = String(reviewData.mistakes);
     $('analysisBlundersCount').textContent = String(reviewData.blunders);
+    renderPhaseDiagnosis(source);
+    renderWeaknessTraining();
+    renderPhaseEngineStatus(source);
     renderReviewPosition();
   }
 
@@ -2271,6 +2705,13 @@
     goToReviewPly(next);
   }
 
+  function bestMoveForReview(state, step) {
+    const uci = step.verified?.best;
+    const move = uci && Core.moveFromUCI(state, uci);
+    if (!move) return Review.bestMove(state);
+    return { move, uci, san: Core.sanNotation(state, move, Core.makeMoveCopy(state, move)) };
+  }
+
   function toggleReviewBestMove() {
     const step = reviewStep();
     if (!step) return;
@@ -2282,7 +2723,7 @@
     }
     resetReviewInteraction();
     const state = Core.parseFEN(step.fenBefore);
-    reviewBest = Review.bestMove(state);
+    reviewBest = bestMoveForReview(state, step);
     reviewShowBest = true;
     renderReviewPosition();
   }
@@ -2304,9 +2745,13 @@
     }
     resetReviewInteraction();
     reviewRetryState = Core.parseFEN(step.fenBefore);
-    reviewBest = Review.bestMove(reviewRetryState);
+    reviewBest = bestMoveForReview(reviewRetryState, step);
     reviewRetryMessage = { title: 'Sua vez de corrigir.', text: `Voltei para antes de ${step.notation}. Não tente adivinhar o lance do motor: procure xeques, capturas, ameaças e a peça pior colocada.` };
     renderReviewPosition();
+  }
+
+  function stepRetryText(outcome) {
+    return reviewStep()?.verified ? `Estimativa local da tentativa: ${outcome.text}` : outcome.text;
   }
 
   function onReviewRetrySquare(row, col) {
@@ -2318,7 +2763,7 @@
         reviewRetryPreview = Core.makeMoveCopy(reviewRetryState, candidate);
         reviewRetryPreview.lastMove = { fromRow: candidate.fromRow, fromCol: candidate.fromCol, toRow: candidate.toRow, toCol: candidate.toCol };
         const labels = { best: 'Isso.', good: 'Boa recuperação.', close: 'Melhorou.', bad: 'Ainda há um problema.', invalid: 'Lance inválido.' };
-        reviewRetryMessage = { title: labels[outcome.verdict] || 'Resultado da tentativa', text: outcome.text };
+        reviewRetryMessage = { title: labels[outcome.verdict] || 'Resultado da tentativa', text: stepRetryText(outcome) };
         reviewRetrySelected = null;
         reviewRetryLegal = [];
         renderReviewPosition();
@@ -2630,6 +3075,7 @@
         : '<p class="analysis-copy">As habilidades começam a aparecer depois da avaliação e ficam mais confiáveis com novas partidas.</p>';
     }
 
+    renderPhaseDiagnosis();
     renderWeeklyReport();
     renderTraining();
     renderOpenings();
@@ -2962,7 +3408,7 @@
     setCoach(opening.name, `A sequência conhecida acabou. Agora não existe seta mágica: use as ideias da abertura e decida o próximo plano. ${opening.after[0]}`);
     $('gameStatus').textContent = 'Treino de abertura';
     if (game.state.turn !== game.userColor) { botThinking = true; $('turnIndicator').textContent = 'Adversário pensando'; scheduleBotTurn(); }
-    else $('turnIndicator').textContent = 'Sua vez · arraste ou clique';
+    else $('turnIndicator').textContent = isPhysicalGame() ? `${game.state.turn === 'w' ? 'Brancas' : 'Pretas'} jogam · registre o lance` : 'Sua vez · arraste ou clique';
     switchView('play');
   }
 
@@ -3074,14 +3520,16 @@
       return;
     }
 
-    if (!confirm('Restaurar este backup substituirá o progresso atual neste navegador. Continuar?')) return;
+    if (!confirm('Juntar as partidas e treinos deste backup ao perfil atual? O histórico da conta será preservado.')) return;
 
-    const restoredProfile = normalizeProfile(parsed.profile);
+    const backupGuestId = parsed.profile._sync?.guestId;
+    const restoredProfile = normalizeProfile(authUser && backupGuestId ? ProfileSync.transferGuest(profile, parsed.profile, backupGuestId) : ProfileSync.merge(profile, parsed.profile));
+    if (!authUser && backupGuestId) localStorage.setItem('kiraGuestId', backupGuestId);
     const restoredGame = normalizeGame(parsed.currentGame);
-    localStorage.setItem(PROFILE_KEY, JSON.stringify(restoredProfile));
-    if (restoredGame?.status === 'playing') localStorage.setItem(GAME_KEY, JSON.stringify(restoredGame));
-    else localStorage.removeItem(GAME_KEY);
-    localStorage.removeItem(LEGACY_PROFILE_KEY);
+    localStorage.setItem(profileStorageKey(), JSON.stringify(restoredProfile));
+    if (restoredGame?.status === 'playing') localStorage.setItem(gameStorageKey(), JSON.stringify(restoredGame));
+    else localStorage.removeItem(gameStorageKey());
+    if (storageScope === 'guest') localStorage.removeItem(LEGACY_PROFILE_KEY);
     location.reload();
   }
 
@@ -3094,9 +3542,13 @@
     if (name === 'train') renderTraining();
     if (name === 'openings') renderOpenings();
     if (name === 'patterns') renderPatterns();
-    if (name === 'analyze') renderAnalysis();
+    if (name === 'analyze') {
+      renderAnalysis();
+      const source = currentReviewArchiveItem();
+      if (source && !phaseAnalysisErrors.has(`${storageScope}:${source.id}`)) void analyzeGamePhases();
+    }
     if (name === 'progress') refreshProfileUI();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: scrollBehavior() });
     if (name === 'play') requestAnimationFrame(fitGameBoard);
   }
 
@@ -3132,12 +3584,16 @@
     if ($('authUserEmail')) $('authUserEmail').textContent = signed ? (authUser.email || 'conta conectada') : '—';
     if ($('authAvatar')) $('authAvatar').textContent = signed ? Auth.displayName(authUser).charAt(0).toUpperCase() : 'J';
     document.querySelectorAll('#signInForm button[type="submit"],#signUpForm button[type="submit"]').forEach((button) => { button.disabled = !authConfigured; });
+    $('accountSync').classList.toggle('hidden', !signed);
+    $('syncStatus').textContent = lastSyncStatus.text;
+    const offer = signed && ProfileSync.hasProgress(loadProfile('guest')) && !profile.guestTransfers?.[guestId];
+    $('guestTransferPrompt').classList.toggle('hidden', !offer);
     if ($('accountButton')) $('accountButton').title = signed ? `Conta: ${Auth.displayName(authUser)}` : 'Entrar ou criar conta';
   }
 
   function openAuthGate() {
     updateAuthUI();
-    authError(null);
+    authError(pendingAuthMessage);
     $('authGate')?.classList.remove('hidden');
     document.body.classList.add('auth-open');
   }
@@ -3161,52 +3617,83 @@
     applyGameModeUI();
     if ($('userColor') && ['w', 'b'].includes(game.userColor)) $('userColor').value = game.userColor;
     if ($('botLevel') && [...$('botLevel').options].some((option) => Number(option.value) === Number(game.botLevel))) $('botLevel').value = String(game.botLevel);
-    if (game.state.turn !== game.userColor) {
+    if (game.liveEvaluation) enqueueLiveHistory(game);
+    if (!isPhysicalGame() && game.state.turn !== game.userColor) {
       botThinking = true;
       $('turnIndicator').textContent = 'Adversário pensando';
       scheduleBotTurn();
     } else {
       moveStartedAt = Date.now();
-      $('turnIndicator').textContent = 'Sua vez · arraste ou clique';
+      $('turnIndicator').textContent = isPhysicalGame() ? `${game.state.turn === 'w' ? 'Brancas' : 'Pretas'} jogam · registre o lance` : 'Sua vez · arraste ou clique';
     }
+  }
+
+  function handleSyncStatus(value) {
+    lastSyncStatus = value;
+    $('syncStatus').textContent = value.text;
+    $('accountSync').dataset.state = value.state;
+    $('syncNow').disabled = value.state === 'syncing';
+  }
+
+  async function transferGuestProgress() {
+    if (!authUser) return;
+    const owner = authUser.id;
+    const button = $('transferGuestProgress'); button.disabled = true;
+    $('transferStatus').textContent = 'Juntando seu progresso, sem apagar a cópia local…';
+    try {
+      profile = normalizeProfile(ProfileSync.transferGuest(profile, loadProfile('guest'), guestId));
+      localStorage.setItem(profileStorageKey(), JSON.stringify(profile));
+      refreshProfileUI();
+      await Auth.syncNow();
+      if (authUser?.id !== owner) return;
+      $('transferStatus').textContent = 'Progresso transferido e sincronizado. A cópia de convidado foi preservada.';
+      updateAuthUI(); showToast('Seu progresso está na conta.');
+    } catch (error) { if (authUser?.id === owner) $('transferStatus').textContent = 'A transferência está salva neste navegador, mas a nuvem ainda não confirmou. Use Sincronizar agora para tentar novamente.'; }
+    finally { button.disabled = false; }
   }
 
   async function handleAuthState(state) {
     authConfigured = Boolean(state?.configured);
-    authUser = state?.user || null;
-    const nextScope = authUser?.id || 'guest';
+    const nextUser = state?.user || null;
+    const nextScope = nextUser?.id || 'guest';
     const scopeChanged = nextScope !== storageScope;
+    if (scopeChanged) profileEpoch++;
+    authUser = nextUser;
     storageScope = nextScope;
-
-    if (state?.profile) {
-      profile = normalizeProfile(state.profile);
-    } else if (scopeChanged) {
-      profile = loadProfile(storageScope);
-    }
-
+    if (state?.profile) profile = normalizeProfile(ProfileSync.merge(state.profile, loadProfile(storageScope)));
+    else if (scopeChanged) profile = loadProfile(storageScope);
     if (authUser) {
-      const accountName = Auth.displayName(authUser);
-      if (!profile.name || profile.name === 'Jogador') profile.name = accountName;
+      if (!profile.name || profile.name === 'Jogador') profile = ProfileSync.stamp({ ...profile, name: Auth.displayName(authUser) }, profile, deviceId);
       localStorage.setItem(profileStorageKey(), JSON.stringify(profile));
-      if (!state?.profile) Auth.queueProfileSave(profile, 250);
       localStorage.removeItem('kiraChessAuthDismissed');
     }
-
-    updateAuthUI();
-    refreshProfileUI();
-    reviewData = null;
-    renderAnalysis();
-    renderTraining();
-    renderOpenings();
-    renderPatterns();
+    if (state?.authMessage) pendingAuthMessage = state.authMessage;
+    updateAuthUI(); refreshProfileUI();
+    if (scopeChanged) reviewData = null;
+    renderAnalysis(); renderTraining(); renderOpenings(); renderPatterns();
     if (scopeChanged || !game) restoreGameForCurrentScope();
-    if (authUser) closeAuthGate(false);
+    resumeArchivedLive();
+    if (authUser && (scopeChanged || state.event === 'initial')) {
+      if (ProfileSync.hasProgress(loadProfile('guest')) && !profile.guestTransfers?.[guestId]) openAuthGate();
+      else closeAuthGate(false);
+    }
+    if (pendingAuthMessage) { openAuthGate(); authError(pendingAuthMessage); }
   }
 
   function bindAuthEvents() {
+    $('mobileAccountButton').addEventListener('click', openAuthGate);
+    $('syncNow').addEventListener('click', () => { void Auth.syncNow().catch(() => {}); });
+    $('transferGuestProgress').addEventListener('click', transferGuestProgress);
+    $('transferGuestLater').addEventListener('click', () => closeAuthGate(false));
+    $('googleSignIn').addEventListener('click', async () => {
+      pendingAuthMessage = null; authError(null);
+      const button = $('googleSignIn'); button.disabled = true;
+      try { await Auth.signInWithGoogle(); } catch (error) { authError(error.message); }
+      finally { button.disabled = false; }
+    });
     $('accountButton')?.addEventListener('click', openAuthGate);
     $('closeAuth')?.addEventListener('click', () => closeAuthGate(false));
-    $('continueGuest')?.addEventListener('click', () => closeAuthGate(true));
+    $('continueGuest')?.addEventListener('click', () => { pendingAuthMessage = null; closeAuthGate(true); });
     $('authGate')?.addEventListener('click', (event) => { if (event.target === $('authGate')) closeAuthGate(false); });
 
     document.querySelectorAll('[data-auth-tab]').forEach((button) => button.addEventListener('click', () => {
@@ -3219,7 +3706,7 @@
 
     $('signInForm')?.addEventListener('submit', async (event) => {
       event.preventDefault();
-      authError(null);
+      pendingAuthMessage = null; authError(null);
       if (!authConfigured) { authError('Configure o Supabase antes de usar login real.'); return; }
       const button = event.currentTarget.querySelector('button[type="submit"]');
       button.disabled = true; button.textContent = 'ENTRANDO…';
@@ -3235,7 +3722,7 @@
 
     $('signUpForm')?.addEventListener('submit', async (event) => {
       event.preventDefault();
-      authError(null);
+      pendingAuthMessage = null; authError(null);
       if (!authConfigured) { authError('Configure o Supabase antes de criar contas.'); return; }
       const button = event.currentTarget.querySelector('button[type="submit"]');
       button.disabled = true; button.textContent = 'CRIANDO…';
@@ -3295,7 +3782,23 @@
       const file = $('backupFileInput').files?.[0] || null; $('backupFileInput').value = ''; await restoreBackupFile(file);
     });
 
+    $('gameType').addEventListener('change', () => startNewGame({mode:selectedGameMode()}));
+    $('liveEvaluationToggle').addEventListener('change', () => { if (!game || isEvaluationGame()) return; game.liveEvaluation = $('liveEvaluationToggle').checked; if (game.liveEvaluation) enqueueLiveHistory(game); saveGame(); applyGameModeUI(); renderLiveEvaluation(); });
+    $('finishRecording').addEventListener('click', () => { if (!game?.history.length || game.status !== 'playing' || isEvaluationGame()) return; if (botTimer) clearTimeout(botTimer); botTimer = null; botThinking = false; game.status = 'ended'; game.result = $('recordingResult').value; game.reason = 'recording-ended'; game.completedAt = new Date().toISOString(); saveGame(); renderGame(); finishGame(); });
+    $('liveEvaluationList').addEventListener('click', (event) => { const button = event.target.closest('[data-live-ply]'); if (button) openLiveExplanation(Number(button.dataset.livePly)); });
+    $('retryLiveEvaluation').addEventListener('click', () => { enqueueLiveHistory(game, true); renderLiveEvaluation(); });
+    $('closeLiveExplanation').addEventListener('click', () => { liveExplanation = null; $('liveExplanation').classList.add('hidden'); });
+    $('nextLiveContinuation').addEventListener('click', () => { if (liveExplanation) { liveExplanation.index++; renderLiveExplanation(); } });
+    $('restartLiveContinuation').addEventListener('click', () => { if (liveExplanation) { liveExplanation.index = 0; renderLiveExplanation(); } });
     $('newGameButton').addEventListener('click', () => startNewGame({ mode: selectedGameMode() }));
+    document.querySelectorAll('[data-pgn-example]').forEach((button) => button.addEventListener('click', async () => {
+      try {
+        const response = await fetch(`assets/samples/${button.dataset.pgnExample}.pgn`);
+        if (!response.ok) throw new Error('Exemplo indisponível');
+        $('pgnInput').value = await response.text();
+        $('importSide').value = button.dataset.pgnExample === 'black' ? 'b' : 'w';
+      } catch (_) { showToast('Não foi possível abrir o exemplo.'); }
+    }));
     $('openPgnImport').addEventListener('click', openPgnImport);
     $('cancelPgnImport').addEventListener('click', closePgnImport);
     $('confirmPgnImport').addEventListener('click', importPgnGame);
@@ -3388,6 +3891,14 @@
       if (related) { setTrainingMode(related.dataset.openingPattern || 'bishop'); switchView('train'); }
     });
 
+    $('analyzeGamePhases').addEventListener('click', analyzeGamePhases);
+    $('trainFromHistory').addEventListener('click', () => profile.weaknessSession ? switchView('analyze') : startWeaknessTraining());
+    $('trainWeakness').addEventListener('click', () => startWeaknessTraining());
+    $('closeWeaknessSummary').addEventListener('click', () => { if (profile.weaknessSummary) profile.weaknessSummary.dismissed = true; saveProfile(); renderWeaknessTraining(); });
+    $('closeWeakness').addEventListener('click', () => { profile.weaknessSession = null; saveProfile(); renderWeaknessTraining(); });
+    ['Hint', 'Reply', 'Solution', 'Reset', 'Next'].forEach((name) => $(`weakness${name}`).addEventListener('click', () => weaknessAction(name.toLowerCase())));
+    $('phaseGameCards').addEventListener('click', openPhaseExample);
+    $('phaseHistoryCards').addEventListener('click', openPhaseExample);
     $('reviewFirst')?.addEventListener('click', () => goToReviewPly(0));
     $('reviewPrev')?.addEventListener('click', () => goToReviewPly(reviewPly - 1));
     $('reviewNext')?.addEventListener('click', () => goToReviewPly(reviewPly + 1));
@@ -3397,7 +3908,7 @@
     $('reviewBest')?.addEventListener('click', toggleReviewBestMove);
     $('reviewAnotherGame')?.addEventListener('click', () => {
       $('archiveSection')?.classList.remove('hidden');
-      $('archiveSection')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      $('archiveSection')?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
       $('archiveSection')?.classList.add('archive-focus');
       setTimeout(() => $('archiveSection')?.classList.remove('archive-focus'), 1000);
     });
@@ -3410,6 +3921,12 @@
     $('nextExercise').addEventListener('click', nextExercise);
 
     $('resetButton').addEventListener('click', () => {
+      if (authUser) {
+        if (!confirm('Limpar a cópia local desta conta? O histórico sincronizado será recuperado da nuvem; a conta não será apagada.')) return;
+        localStorage.removeItem(profileStorageKey()); localStorage.removeItem(gameStorageKey());
+        void Auth.syncNow().then(() => showToast('Cópia local atualizada com os dados da conta.')).catch(() => showToast('A cópia local foi limpa. Reconecte para recuperar a conta.'));
+        return;
+      }
       if (!confirm('Apagar todo o progresso local e fazer uma nova avaliação?')) return;
       localStorage.removeItem(profileStorageKey()); localStorage.removeItem(gameStorageKey());
       if (storageScope === 'guest') localStorage.removeItem(LEGACY_PROFILE_KEY);
@@ -3469,7 +3986,7 @@
     updateEngineStatus({ state: stockfish.state, error: null });
 
     try {
-      await Auth.initialize(handleAuthState);
+      await Auth.initialize(handleAuthState, handleSyncStatus);
     } catch (error) {
       console.warn('Login opcional indisponível.', error);
       await handleAuthState({ configured: false, user: null, profile: null });

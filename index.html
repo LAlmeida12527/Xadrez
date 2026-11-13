@@ -13,10 +13,13 @@
   <div id="authGate" class="auth-gate hidden" aria-modal="true" role="dialog" aria-labelledby="authTitle">
     <div class="auth-card">
       <div class="auth-brand"><div class="brand-mark large">K</div><div><strong>KIRA CHESS</strong><span>SEU JOGO. SUA CONTA.</span></div></div>
-      <div class="auth-copy"><p class="eyebrow">ENTRAR</p><h1 id="authTitle">Seu progresso acompanha você.</h1><p>Crie uma conta para jogar em qualquer dispositivo e mandar o Kira Chess para seus amigos sem misturar os perfis.</p></div>
-      <div id="authNotConfigured" class="auth-setup-note hidden"><strong>Login ainda não conectado.</strong><span>O site funciona como convidado. Para ativar contas reais, configure <code>js/supabase-config.js</code> e execute <code>supabase-setup.sql</code>.</span></div>
+      <div class="auth-copy"><p class="eyebrow">CONTA</p><h1 id="authTitle">Seu progresso acompanha você.</h1><p>Crie uma conta para jogar em qualquer dispositivo e mandar o Kira Chess para seus amigos sem misturar os perfis.</p></div>
+      <div id="authNotConfigured" class="auth-setup-note hidden"><strong>Login ainda não conectado.</strong><span>O acesso à conta ainda não está configurado. Você pode continuar como convidado; seu progresso fica salvo neste navegador.</span></div>
       <div id="authSignedIn" class="auth-signed-in hidden"><div class="avatar large" id="authAvatar">J</div><div><strong id="authUserName">Jogador</strong><span id="authUserEmail">—</span></div><button id="closeAuth" class="secondary-button">VOLTAR AO JOGO</button><button id="signOutButton" class="text-button danger">SAIR DA CONTA</button></div>
-      <div id="authForms">
+      <div id="accountSync" class="account-sync hidden"><p id="syncStatus" role="status" aria-live="polite"></p><button id="syncNow" class="secondary-button">Sincronizar agora</button></div>
+      <section id="guestTransferPrompt" class="guest-transfer hidden" aria-labelledby="guestTransferTitle"><h2 id="guestTransferTitle">Seu progresso de convidado está aqui.</h2><p>Você pode juntar suas partidas e treinos à conta, preservando o histórico da nuvem e a cópia deste navegador.</p><button id="transferGuestProgress" class="primary-button">Levar meu progresso para a conta</button><button id="transferGuestLater" class="text-button">Agora não</button><p id="transferStatus" role="status"></p></section>
+      <div id="authError" class="auth-error hidden" role="alert"></div>
+      <div id="authForms"><button id="googleSignIn" class="google-sign-in" type="button"><span aria-hidden="true">G</span> Continuar com Google</button><div class="auth-divider">ou use seu e-mail</div>
         <div class="auth-tabs"><button class="auth-tab active" data-auth-tab="signin">ENTRAR</button><button class="auth-tab" data-auth-tab="signup">CRIAR CONTA</button></div>
         <form id="signInForm" class="auth-form">
           <label>Email<input id="signInEmail" type="email" autocomplete="email" required placeholder="voce@email.com"></label>
@@ -29,7 +32,7 @@
           <label>Senha<input id="signUpPassword" type="password" autocomplete="new-password" required minlength="6" placeholder="mínimo 6 caracteres"></label>
           <button class="primary-button" type="submit">CRIAR CONTA →</button>
         </form>
-        <div id="authError" class="auth-error hidden" role="alert"></div>
+
       </div>
       <button id="continueGuest" class="secondary-button auth-guest">CONTINUAR COMO CONVIDADO</button>
       <button id="shareSiteButton" class="text-button auth-share">↗ COMPARTILHAR KIRA CHESS</button>
@@ -61,7 +64,7 @@
     </aside>
 
     <main class="main-content">
-      <header class="mobile-header">
+      <header class="mobile-header"><button id="mobileAccountButton" class="secondary-button" type="button" aria-label="Abrir Conta">Conta</button>
         <div class="brand compact"><div class="brand-mark">K</div><div><strong>KIRA</strong></div></div>
         <div class="rating-pill"><span id="mobileRating">—</span> <small id="mobileRatingLabel">em avaliação</small></div>
       </header>
@@ -129,6 +132,7 @@
         <div class="section-header compact-section-header">
           <div><p class="eyebrow">TREINAR</p><h1>Seu catálogo, na ordem certa.</h1><p class="lead">Mais atividades onde você erra mais. Menos conteúdo só para encher tela.</p></div>
         </div>
+        <section class="panel weakness-entry"><img src="assets/training-entry.webp" alt="" width="160" height="160"><div><p class="eyebrow">DA PARTIDA PARA O TABULEIRO</p><h2>Treinar meu ponto fraco</h2><p id="weaknessEntryText" class="analysis-copy">Importe uma partida para transformar um erro em treino.</p><button id="trainFromHistory" class="primary-button">Treinar meu ponto fraco</button><button class="text-button" data-view-jump="analyze">Abrir diagnóstico e importar PGN</button></div></section>
         <div id="trainingLocked" class="panel locked-experience">
           <span class="lock-symbol">◇</span><div><div class="panel-kicker">AINDA NÃO</div><h2>Primeiro eu preciso ver uma partida sua.</h2><p>Depois da avaliação, o catálogo é ordenado pelos erros mais comuns e pelo seu jeito de jogar.</p></div><button class="primary-button" data-start-assessment>JOGAR AVALIAÇÃO</button>
         </div>
@@ -181,11 +185,13 @@
         <div class="play-toolbar refined-play-toolbar">
           <div><p class="eyebrow" id="playEyebrow">JOGAR COM LIGHT</p><h1 id="playTitle">Pense antes de mover.</h1></div>
           <div class="play-controls">
+            <label>PARTIDA <select id="gameType"><option value="bot">Jogar contra o bot</option><option value="physical">Tabuleiro físico</option></select></label>
+            <label class="live-toggle"><input id="liveEvaluationToggle" type="checkbox"> Avaliação ao vivo</label>
             <div class="mode-switch" role="group" aria-label="Modo da partida">
               <button class="mode-button active" data-game-mode="coach">COM LIGHT</button>
               <button class="mode-button" data-game-mode="normal">NORMAL</button>
             </div>
-            <label>COR <select id="userColor"><option value="w" selected>Brancas</option><option value="b">Pretas</option><option value="random">Aleatória</option></select></label>
+            <label>MEU LADO <select id="userColor" aria-label="Meu lado para o diagnóstico"><option value="w" selected>Brancas</option><option value="b">Pretas</option><option value="random">Aleatória</option></select></label>
             <label id="botLevelLabel" class="bot-level-control"><span>FORÇA DO BOT</span><select id="botLevel" aria-label="Elo aproximado do bot"><option value="300">≈300 Elo · Primeiro contato</option><option value="500" selected>≈500 Elo · Iniciante</option><option value="700">≈700 Elo · Aprendiz</option><option value="900">≈900 Elo · Clube iniciante</option><option value="1100">≈1100 Elo · Intermediário</option><option value="1300">≈1300 Elo · Competitivo</option><option value="1500">≈1500 Elo · Desafio forte</option></select></label>
             <button class="secondary-button" id="newGameButton">NOVA</button>
           </div>
@@ -194,11 +200,14 @@
           <section class="board-column">
             <div class="opponent-strip"><div class="avatar bot-avatar">K</div><div class="opponent-meta"><strong id="opponentName">Adversário</strong><span id="botDescription">Bot humano</span></div><span id="botEloBadge" class="elo-badge">≈500 Elo</span><div class="turn-indicator" id="turnIndicator">Sua vez</div></div>
             <div id="gameBoard" class="chess-board game-board" aria-label="Tabuleiro de xadrez"></div>
+            <section id="liveEvaluationPanel" class="live-evaluation-panel hidden" aria-label="Avaliação ao vivo"><p id="liveEvaluationStatus" role="status" aria-live="polite">Stockfish: aguardando seu primeiro lance.</p><div id="liveEvaluationList" class="live-evaluation-list"></div><button id="retryLiveEvaluation" class="text-button hidden">Tentar avaliações novamente</button></section>
+            <section id="liveExplanation" class="panel live-explanation hidden" aria-labelledby="liveExplanationTitle"><div class="panel-heading"><h2 id="liveExplanationTitle">Continuação possível</h2><button id="closeLiveExplanation" class="secondary-button">Fechar</button></div><p id="liveExplanationText" role="status"></p><div id="liveExplanationBoard" class="chess-board" aria-label="Tabuleiro de explicação da avaliação"></div><div class="live-explanation-actions"><button id="restartLiveContinuation" class="secondary-button">Reiniciar</button><button id="nextLiveContinuation" class="primary-button">Próximo lance da linha</button></div><small>Esta é uma continuação possível do Stockfish. O tabuleiro da partida permanece independente.</small></section>
             <div class="player-strip"><div id="playerAvatar" class="avatar">J</div><div><strong id="playerName">Jogador</strong><span id="playerLevelLabel">Nível em avaliação</span></div><div class="material-status" id="materialStatus">Material igual</div></div>
           </section>
           <aside id="coachPanel" class="coach-panel panel">
-            <div class="coach-panel-head"><div><div class="panel-kicker" id="coachPanelKicker">LIGHT · AO VIVO</div><h2 id="coachStateTitle">Estou observando.</h2></div><div class="coach-sigil small">L</div></div>
+            <div class="coach-panel-head"><div><div class="panel-kicker" id="coachPanelKicker">LIGHT · AO VIVO</div><h2 id="coachStateTitle">Estou observando.</h2></div><img id="playLightPortrait" class="light-portrait" src="assets/light/atento.webp" alt="Light atento" width="56" height="56"></div>
             <div class="coach-message" id="coachMessage">Depois da jogada adversária, eu vou te ensinar como organizar o pensamento — não qual lance copiar.</div>
+            <button id="reviewFinishedGame" class="primary-button hidden" data-view-jump="analyze">Ver diagnóstico da partida</button>
             <div id="coachGuide" class="coach-guide hidden"></div>
             <div id="coachChoices" class="coach-choices hidden"></div>
             <div id="coachQuickActions" class="coach-quick-actions">
@@ -207,6 +216,7 @@
               <button id="coachSkipButton" class="text-button hidden">JOGAR SEM RESPONDER</button>
             </div>
             <div class="move-log-wrap"><div class="move-log-title"><span>PARTIDA</span><button id="copyPgn" class="text-button">COPIAR PGN</button></div><div id="moveLog" class="move-log"><div class="empty-log">A partida ainda não começou.</div></div></div>
+            <div class="end-recording"><label for="recordingResult">Resultado ao encerrar</label><select id="recordingResult"><option value="Não informado">Não informado</option><option value="Vitória">Minha vitória</option><option value="Derrota">Minha derrota</option><option value="Empate">Empate</option></select><button id="finishRecording" class="secondary-button">Encerrar registro</button></div>
             <div class="coach-footer"><span id="coachWarnings">0 intervenções</span><span id="gameStatus">Em andamento</span></div>
           </aside>
         </div>
@@ -247,7 +257,24 @@
             <div><span>ERROS GRAVES</span><strong id="analysisBlundersCount">0</strong></div>
             <button id="reviewAnotherGame" class="secondary-button">ESCOLHER PARTIDA</button>
           </section>
-          <section class="review-workspace">
+          <section class="panel phase-diagnosis" aria-labelledby="phaseGameTitle">
+            <div class="phase-diagnosis-heading">
+              <div><h2 id="phaseGameTitle">Diagnóstico por fase</h2><p id="phaseGameSummary" class="analysis-copy"></p></div>
+              <button id="analyzeGamePhases" class="secondary-button">Analisar com Stockfish</button>
+            </div>
+            <p id="phaseEngineStatus" class="analysis-copy hidden" role="status"></p>
+            <button id="trainWeakness" class="primary-button">Treinar meu ponto fraco</button>
+            <p id="weaknessAvailability" class="analysis-copy"></p>
+            <div id="phaseGameCards" class="phase-cards"></div>
+          </section>
+          <section id="weaknessPractice" class="panel weakness-practice hidden" aria-labelledby="weaknessTitle">
+            <div class="weakness-heading"><div><p class="eyebrow" id="weaknessStep">DO SEU JOGO AO TREINO</p><h2 id="weaknessTitle">Treinar meu ponto fraco</h2></div><button id="closeWeakness" class="secondary-button">Voltar à revisão</button></div>
+            <div class="weakness-workspace"><div><div id="weaknessBoard" class="chess-board" aria-label="Tabuleiro do treino pessoal"></div><p id="weaknessPosition" class="analysis-copy"></p></div>
+            <div class="weakness-copy"><div class="weakness-coach"><img id="weaknessLightPortrait" class="light-portrait" src="assets/light/atento.webp" alt="Light atento" width="64" height="64"><div><span class="eyebrow">KIRA · SEU TREINADOR</span><h3>Observe. Entenda. Responda.</h3></div></div><img class="weakness-art" src="assets/training-entry.webp" alt="" width="480" height="240" loading="lazy"><p id="weaknessPrompt"></p><p id="weaknessFeedback" role="status" aria-live="polite"></p><label for="weaknessPromotion">Ao promover, escolher</label><select id="weaknessPromotion"><option value="q">Dama</option><option value="r">Torre</option><option value="b">Bispo</option><option value="n">Cavalo</option></select>
+            <div class="weakness-actions"><button id="weaknessHint" class="secondary-button">Dica 1 · Onde olhar</button><button id="weaknessReply" class="secondary-button">Ver resposta do adversário</button><button id="weaknessSolution" class="secondary-button">Mostrar solução</button><button id="weaknessReset" class="secondary-button">Tentar novamente</button><button id="weaknessNext" class="primary-button">Próxima posição</button></div></div></div>
+          </section>
+          <section id="weaknessSummaryPanel" class="panel light-summary hidden"><img src="assets/light/reflexivo.webp" alt="Light reflexivo" class="light-portrait" width="64" height="64"><div><h2>O que levar para a próxima partida</h2><p id="weaknessSummaryText" role="status"></p><button id="closeWeaknessSummary" class="secondary-button">Voltar à partida</button></div></section>
+          <section class="review-workspace" id="reviewWorkspace">
             <div class="review-board-side">
               <div class="review-board-shell">
                 <div class="eval-bar" aria-label="Avaliação da posição"><div id="reviewEvalFill" class="eval-fill"></div><span id="reviewEvalLabel">0.0</span></div>
@@ -259,7 +286,7 @@
               </div>
             </div>
             <aside class="review-coach panel">
-              <div class="review-coach-head"><div class="coach-sigil">L</div><div><span id="reviewMoveBadge" class="move-classification">POSIÇÃO INICIAL</span><h2 id="reviewMoveTitle">Vamos revisar.</h2></div></div>
+              <div class="review-coach-head"><img id="reviewLightPortrait" class="light-portrait" src="assets/light/atento.webp" alt="Light atento" width="64" height="64"><div><span id="reviewMoveBadge" class="move-classification">POSIÇÃO INICIAL</span><h2 id="reviewMoveTitle">Vamos revisar.</h2></div></div>
               <p id="reviewCoachText" class="review-coach-text">Avance pelos lances. Eu vou separar resultado de decisão.</p>
               <div id="reviewBestLine" class="review-best-line hidden"></div>
               <div class="review-actions"><button id="reviewRetry" class="secondary-button">TENTAR DE NOVO</button><button id="reviewBest" class="secondary-button">MOSTRAR MELHOR LANCE</button></div>
@@ -275,6 +302,11 @@
       <section id="view-progress" class="view">
         <div class="section-header"><div><p class="eyebrow">MEU JOGO</p><h1>Informação que ajuda a melhorar.</h1><p class="lead">Sem ranking presumido e sem gráfico só para decorar a tela.</p></div></div>
         <div class="progress-grid">
+          <section class="panel full-span phase-diagnosis" aria-labelledby="phaseHistoryTitle">
+            <div class="phase-diagnosis-heading"><div><h2 id="phaseHistoryTitle">Onde você perde vantagem</h2><p id="phaseHistorySummary" class="analysis-copy"></p></div></div>
+            <div id="phaseHistoryCards" class="phase-cards"></div>
+            <button class="secondary-button" data-view-jump="analyze">Abrir revisão de partidas</button>
+          </section>
           <section class="panel rating-card"><div class="panel-kicker">NÍVEL ESTIMADO</div><div class="rating-big"><strong id="progressRating">—</strong><span id="progressRange">aguardando avaliação</span></div><div class="progress-track"><div id="ratingProgressFill" class="progress-fill"></div></div><p id="ratingProgressText">A estimativa aparece depois de você jogar.</p></section>
           <section class="panel"><div class="panel-kicker">ESTILO OBSERVADO</div><h2 id="progressStyle">Ainda não avaliado</h2><p id="progressStyleDescription" class="analysis-copy">Seu estilo será inferido das suas decisões.</p></section>
           <section class="panel"><div class="panel-kicker">HABILIDADES</div><div id="skillBars" class="skill-bars"></div></section>
@@ -302,7 +334,7 @@
   </div>
 
   <div id="pgnImportModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="pgnImportTitle">
-    <div class="modal-card pgn-modal"><div class="panel-kicker">IMPORTAR PARTIDA</div><h2 id="pgnImportTitle">Cole o PGN.</h2><p>O Kira Chess analisará apenas o seu lado. A estimativa de nível não muda automaticamente por uma única importação.</p><label class="field-label" for="importSide">EU JOGUEI DE</label><select id="importSide" class="modal-select"><option value="w">Brancas</option><option value="b">Pretas</option></select><label class="field-label" for="pgnInput">PGN</label><textarea id="pgnInput" class="pgn-input" rows="10" spellcheck="false" placeholder="1. e4 e5 2. Nf3 Nc6 ..."></textarea><div id="importPgnError" class="form-error hidden" role="alert"></div><div class="modal-actions"><button id="cancelPgnImport" class="secondary-button">CANCELAR</button><button id="confirmPgnImport" class="primary-button">ANALISAR PARTIDA</button></div></div>
+    <div class="modal-card pgn-modal"><div class="panel-kicker">IMPORTAR PARTIDA</div><h2 id="pgnImportTitle">Cole o PGN.</h2><p>O Kira Chess analisará apenas o seu lado. A estimativa de nível não muda automaticamente por uma única importação.</p><div class="pgn-examples"><span>Sem PGN? Use uma partida de teste:</span><button class="secondary-button" data-pgn-example="white">Brancas</button><button class="secondary-button" data-pgn-example="black">Pretas</button><button class="secondary-button" data-pgn-example="all-phases">Três fases</button><button class="secondary-button" data-pgn-example="pattern">Dama sob ataque</button></div><label class="field-label" for="importSide">EU JOGUEI DE</label><select id="importSide" class="modal-select"><option value="w">Brancas</option><option value="b">Pretas</option></select><label class="field-label" for="pgnInput">PGN</label><textarea id="pgnInput" class="pgn-input" rows="10" spellcheck="false" placeholder="1. e4 e5 2. Nf3 Nc6 ..."></textarea><div id="importPgnError" class="form-error hidden" role="alert"></div><div class="modal-actions"><button id="cancelPgnImport" class="secondary-button">CANCELAR</button><button id="confirmPgnImport" class="primary-button">ANALISAR PARTIDA</button></div></div>
   </div>
 
   <div id="toast" class="toast hidden" role="status"></div>
@@ -320,12 +352,17 @@
   <script src="js/game-archive.js"></script>
   <script src="js/engine-review.js"></script>
   <script src="js/review-engine.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="assets/vendor/supabase-2.119.0.js"></script>
   <script src="js/supabase-config.js"></script>
+  <script src="js/profile-sync.js"></script>
   <script src="js/auth-service.js"></script>
   <script src="js/progress-engine.js"></script>
   <script src="js/data-portability.js"></script>
   <script src="js/stockfish-service.js"></script>
+  <script src="js/phase-diagnosis.js"></script>
+  <script src="js/weakness-training.js"></script>
+  <script src="js/light-reactions.js"></script>
+  <script src="js/live-evaluation.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
