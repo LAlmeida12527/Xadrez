@@ -14,7 +14,10 @@ fs.mkdirSync(output,{recursive:true});
   const errors=[]; page.on('pageerror',e=>errors.push(e.message));
   const readProfile=()=>page.evaluate(key=>JSON.parse(localStorage.getItem(key)),profileKey);
   const nav=async(name)=>page.locator(`[data-view="${name}"]:visible`).first().click();
-  const shot=async(name)=>page.screenshot({path:`${output}/${name}.png`});
+  const shot=async(name)=>{
+    await page.locator('.active-view').evaluate(async e=>{await Promise.all(e.getAnimations().map(a=>a.finished.catch(()=>{})));});
+    await page.screenshot({path:`${output}/${name}.png`});
+  };
   async function imported(name, side) {
     await nav('analyze');
     if(await page.locator('#weaknessPractice').isVisible())await page.locator('#closeWeakness').click();
