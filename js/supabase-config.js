@@ -3,5 +3,6 @@
 // A chave pública pode ficar no front-end; a proteção real vem das políticas RLS em supabase-setup.sql.
 window.KiraSupabaseConfig = {
   url: '',
-  anonKey: ''
+  anonKey: '',
+  oauthRedirectUrl: 'https://kira-chess-treino-lalmeida12527.agilesunflower2.chatgpt.site/'
 };

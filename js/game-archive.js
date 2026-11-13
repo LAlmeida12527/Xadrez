@@ -94,12 +94,12 @@
   }
 
   function add(archive, item, limit) {
-    const max = Math.max(1, Math.min(100, Number(limit) || 24));
+    const max = limit === Infinity ? Infinity : Math.max(1, Math.min(100, Number(limit) || 24));
     const normalized = normalizeArchiveItem(item);
     const list = Array.isArray(archive) ? archive.map(normalizeArchiveItem) : [];
     const withoutDuplicate = list.filter((entry) => entry.id !== normalized.id);
     withoutDuplicate.push(normalized);
-    return withoutDuplicate.slice(-max);
+    return max === Infinity ? withoutDuplicate : withoutDuplicate.slice(-max);
   }
 
   function updateAnalysis(archive, archiveId, analysis) {

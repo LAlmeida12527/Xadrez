@@ -166,6 +166,12 @@ npm run build
 
 `dist/` contém o aplicativo estático, peças SVG, imagens WebP, exemplos PGN e Stockfish JS/WASM local. Esse diretório pode ser usado futuramente como `webDir` de um projeto Capacitor. Sirva a aplicação por HTTP(S) ou pela origem local do WebView; abrir `index.html` diretamente por `file://` não oferece as mesmas condições para workers/fetch. Ainda não há projeto Android nem APK nesta entrega.
 
-O núcleo de diagnóstico e treino não usa serviços externos. O login opcional ainda usa o Supabase via CDN e exige sua própria configuração. As posições didáticas disponíveis nesta entrega cobrem cavalo contra dama, bispo contra torre e rede de mate não aproveitada. Não há geração automática de exercícios nem garantia de segunda posição para todos os erros.
+O núcleo de diagnóstico e treino não usa serviços externos. O login opcional usa o SDK Supabase incluído localmente e exige sua própria configuração. As posições didáticas disponíveis nesta entrega cobrem cavalo contra dama, bispo contra torre e rede de mate não aproveitada. Não há geração automática de exercícios nem garantia de segunda posição para todos os erros.
 
 A prévia privada em Sites mantém um espelho da aplicação. O desenvolvimento e o PR continuam neste repositório; o endereço está no PR #1. Dados salvos em origens diferentes (GitHub Pages e Sites) ficam separados; use o backup do app para transferir seu histórico.
+
+## Conta Google e sincronização
+
+A tela **Conta** oferece Google, e-mail/senha e convidado. O botão Conta também aparece no cabeçalho do celular. A transferência opcional preserva o convidado e combina partidas/treinos com a nuvem sem substituir o histórico. O restauro agora usa as chaves de armazenamento do perfil ativo.
+
+**Google real depende de configuração externa e ainda não foi validado.** Consulte [configuração exata e roteiro de aceite](docs/google-sincronizacao.md). O documento separa testes simulados de conta real e descreve as oito expressões do Light.

@@ -16,10 +16,12 @@
   const EngineReview = window.KiraEngineReview;
   const Review = window.KiraReviewEngine;
   const Auth = window.KiraAuth;
+  const ProfileSync = window.KiraProfileSync;
   const Progress = window.KiraProgressEngine;
   const Portability = window.KiraDataPortability;
   const PhaseDiagnosis = window.KiraPhaseDiagnosis;
   const Weakness = window.KiraWeaknessTraining;
+  const Light = window.KiraLightReactions;
   let weaknessSelected = null;
   let weaknessLegal = [];
   const { StockfishService } = window.KiraStockfish;
@@ -34,6 +36,13 @@
   let storageScope = 'guest';
   let authUser = null;
   let authConfigured = false;
+  let pendingAuthMessage = null;
+  let lastSyncStatus = { state: 'guest', text: 'Como convidado, o progresso fica neste navegador.' };
+  const newLocalId = () => globalThis.crypto?.randomUUID?.() || `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  const deviceId = localStorage.getItem('kiraDeviceId') || newLocalId();
+  localStorage.setItem('kiraDeviceId', deviceId);
+  const guestId = localStorage.getItem('kiraGuestId') || newLocalId();
+  localStorage.setItem('kiraGuestId', guestId);
 
   const scrollBehavior = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth';
 
@@ -190,12 +199,16 @@
       patterns: { ...(value.patterns || {}) },
       patternMemory: { ...(value.patternMemory || {}) },
       thinking: { ...defaultProfile.thinking, ...(value.thinking || {}) },
-      recentMistakes: Array.isArray(value.recentMistakes) ? value.recentMistakes.slice(-80).map(Mistakes.normalizeMistake) : [],
-      gameArchive: Array.isArray(value.gameArchive) ? value.gameArchive.slice(-24).map(Archive.normalizeArchiveItem) : []
+      recentMistakes: Array.isArray(value.recentMistakes) ? value.recentMistakes.map(Mistakes.normalizeMistake) : [],
+      gameArchive: Array.isArray(value.gameArchive) ? value.gameArchive.map(Archive.normalizeArchiveItem) : []
     };
   }
 
   function saveProfile() {
+    let previous = {};
+    try { previous = JSON.parse(localStorage.getItem(profileStorageKey()) || '{}'); } catch (_) {}
+    if (storageScope === 'guest') profile._sync = { ...profile._sync, guestId };
+    profile = ProfileSync.stamp(profile, previous, deviceId);
     localStorage.setItem(profileStorageKey(), JSON.stringify(profile));
     if (authUser) Auth.queueProfileSave(profile, 850);
     refreshProfileUI();
@@ -977,7 +990,7 @@
     updateSkillsFromGame(summary);
     const analysis = buildAnalysis(summary);
     const archiveItem = Archive.createArchiveItem(game, summary, pgnText(), analysis);
-    profile.gameArchive = Archive.add(profile.gameArchive, archiveItem, 24);
+    profile.gameArchive = Archive.add(profile.gameArchive, archiveItem, Infinity);
     profile.lastAnalysis = archiveItem.analysis;
 
     if (isEvaluationGame()) {
@@ -1223,6 +1236,7 @@
   }
 
   function setCoach(title, message) {
+    showLight($('playLightPortrait'), { pending: botThinking, stage: game?.status === 'ended' ? 'summary' : 'start' });
     $('coachStateTitle').textContent = title;
     $('coachMessage').textContent = message;
   }
@@ -1985,7 +1999,7 @@
     analysis.imported = true;
     analysis.userColor = side;
     const archiveItem = Archive.createArchiveItem(importedGame, summary, raw, analysis);
-    profile.gameArchive = Archive.add(profile.gameArchive, archiveItem, 24);
+    profile.gameArchive = Archive.add(profile.gameArchive, archiveItem, Infinity);
     profile.lastAnalysis = archiveItem.analysis;
 
     saveProfile();
@@ -2260,6 +2274,14 @@
     bestButton.disabled = !step;
     bestButton.textContent = reviewShowBest ? 'VOLTAR AO LANCE' : 'MOSTRAR MELHOR LANCE';
 
+    const before = step ? Core.parseFEN(step.fenBefore) : null;
+    const played = before && Core.moveFromUCI(before, step.uci);
+    const after = played && Core.makeMoveCopy(before, played);
+    const response = after && step.verified?.reply && Core.moveFromUCI(after, step.verified.reply);
+    const issue = step && ['inaccuracy','mistake','blunder'].includes(step.classification);
+    const stage = reviewRetryState ? reviewRetryPreview ? 'retry' : 'calculate' : reviewShowBest ? 'solution' : reviewPly === reviewData.moves.length ? 'summary' : issue && response ? 'reply' : 'start';
+    showLight($('reviewLightPortrait'), { pending: Boolean(phaseAnalysisJob), stage, confirmedThreat: Boolean(response) });
+    if (!phaseAnalysisJob && response && issue && !reviewShowBest && !reviewRetryState) $('reviewCoachText').textContent += ` Depois desse lance, ${Weakness.words(after, step.verified.reply, reviewData.userColor)}.`;
     renderReviewMoveList();
     renderReviewGraph();
   }
@@ -2278,11 +2300,24 @@
     $('weaknessPractice').scrollIntoView({ block: 'start', behavior: 'instant' });
   }
 
+  function showLight(element, context) {
+    if (!element) return;
+    const expression = Light.expression(context);
+    if (element.dataset.expression !== expression) {
+      element.dataset.expression = expression;
+      element.src = Light.portrait(expression);
+      element.alt = `Light ${expression}`;
+    }
+  }
+
   function renderWeaknessTraining() {
     const session = profile.weaknessSession;
     const item = session?.items?.[session.index];
     $('weaknessPractice').classList.toggle('hidden', !item);
     $('view-analyze').classList.toggle('training-active', Boolean(item));
+    const summary = profile.weaknessSummary;
+    $('weaknessSummaryPanel').classList.toggle('hidden', Boolean(item) || !summary || summary.dismissed);
+    if (summary) $('weaknessSummaryText').textContent = `Você reviu ${summary.positions} posições e encontrou ${summary.found} alternativas antes de revelar a solução. Na próxima partida, confira as ameaças antes de confirmar seu lance.`;
     if (!item) return;
     const { state, after, reply, best } = Weakness.context(item);
     let shown = state, arrow = null;
@@ -2290,8 +2325,10 @@
     if (session.display === 'solution' && best) { shown = Core.makeMoveCopy(state, best); arrow = best; }
     const attempt = session.attempt && Core.moveFromUCI(state, session.attempt);
     if (session.display === 'attempt' && attempt) { shown = Core.makeMoveCopy(state, attempt); arrow = attempt; }
+    const relation = session.hint >= 2 && reply && item.key !== 'mate-missed' && session.display === 'start' ? reply : null;
+    if (relation) { arrow = relation; shown = after; }
     const look = reply ? Core.squareName(reply.fromRow, reply.fromCol) : best ? Core.squareName(best.fromRow, best.fromCol) : null;
-    renderBoard($('weaknessBoard'), shown, { orientation: state.turn, interactive: session.display === 'start',
+    renderBoard($('weaknessBoard'), shown, { orientation: state.turn, interactive: session.display === 'start' && !relation,
       onClick: onWeaknessSquare, selected: weaknessSelected, legal: weaknessLegal,
       hintSquare: session.hint > 0 && session.display === 'start' ? look : null, arrow });
     $('weaknessStep').textContent = `${session.index + 1} / ${session.items.length} · ${session.index === 0 ? 'SEU ERRO REAL' : 'APLICAR EM POSIÇÃO NOVA'}`;
@@ -2302,12 +2339,21 @@
     let text = session.message || 'Sua vez. Procure xeques, capturas e ameaças antes de escolher.';
     if (session.display === 'reply') text = `Depois de ${Weakness.words(state, item.probe)}, ${Weakness.words(after, item.reply, state.turn)}. A seta mostra a resposta possível do adversário.`;
     else if (session.display === 'solution') text = `Solução: ${Weakness.words(state, item.best)}. A resposta foi aplicada no tabuleiro. ${item.key === 'mate-missed' ? 'Confira como as casas de fuga do rei ficaram fechadas.' : 'Compare essa posição com a resposta adversária ao erro original.'}`;
+    else if (session.display === 'attempt' && session.solved) text = session.message;
     else if (session.hint === 1) text = `Onde olhar: observe ${look || 'o rei e as peças sem defesa'}. A casa está destacada. Não escolha um lance ainda; siga os ataques dessa peça.`;
     else if (session.hint >= 2) text = item.key === 'mate-missed' ? 'Existe uma rede de mate: seu rei limita as fugas. Procure um xeque que feche as casas restantes.' : reply ? `A ameaça: depois do lance original, ${Weakness.words(after, item.reply, state.turn)}. Como você pode evitar essa continuação?` : 'Procure os xeques e as casas de fuga do rei. Depois compare a atividade das suas peças. Não há uma resposta adversária verificada disponível para este lance.';
+    if (weaknessSelected && !session.hint && !session.message) text = 'Agora calcule: depois da sua mudança, quais xeques, capturas ou ameaças o adversário teria?';
+    const pending = Boolean(phaseAnalysisJob);
+    const stage = session.display === 'attempt' && session.solved ? 'solved' : session.display === 'solution' ? 'solution' : session.display === 'reply' ? 'reply' : session.hint === 1 ? 'hint1' : session.hint >= 2 ? 'hint2' : session.lastOutcome === 'retry' ? 'retry' : weaknessSelected ? 'calculate' : 'start';
+    const decisive = session.display === 'attempt' && Core.gameStatus(shown).reason === 'checkmate';
+    showLight($('weaknessLightPortrait'), { pending, stage, confirmedThreat: Boolean(reply), verified: item.source === 'Stockfish', decisive, unassisted: !session.hint && !session.revealed && !session.hadMiss });
+    if (pending) text = 'Estou atento. A análise ainda está em andamento; vou esperar a confirmação antes de reagir ao resultado.';
     $('weaknessFeedback').textContent = text;
     const promotion = Core.generateLegalMoves(state, state.turn).some((m) => m.promotion);
     $('weaknessPromotion').hidden = !promotion;
     document.querySelector('label[for="weaknessPromotion"]').hidden = !promotion;
+    $('weaknessReset').textContent = relation ? 'Voltar e responder' : 'Tentar novamente';
+    if (relation) $('weaknessPosition').textContent += ' · Após o lance original: observe a relação e use Voltar e responder.';
     $('weaknessHint').textContent = session.hint ? 'Dica 2 · Entender a ameaça' : 'Dica 1 · Onde olhar';
     $('weaknessHint').disabled = session.hint >= 2 || session.display !== 'start';
     $('weaknessReply').disabled = !reply;
@@ -2321,12 +2367,14 @@
     if (!session) return;
     if (action === 'hint') session.hint = Math.min(2, session.hint + 1);
     if (action === 'reply') session.display = 'reply';
-    if (action === 'solution') { session.display = 'solution'; session.solved = true; }
-    if (action === 'reset') { session.display = 'start'; session.hint = 0; session.solved = false; session.message = ''; session.attempt = null; }
+    if (action === 'solution') { session.display = 'solution'; session.solved = true; session.revealed = true; }
+    if (action === 'reset') { session.display = 'start'; session.hint = 0; session.solved = false; session.message = ''; session.attempt = null; session.lastOutcome = null; session.revealed = false; }
     if (action === 'next') {
       if (!session.solved) return;
-      if (session.index + 1 < session.items.length) { session.index++; profile.weaknessSeen = [...new Set([...(profile.weaknessSeen || []), session.items[session.index].id])]; session.hint = 0; session.solved = false; session.display = 'start'; session.message = ''; session.attempt = null; }
-      else { profile.weaknessSession = null; showToast('Treino concluído. Na próxima partida, procure esse padrão antes de jogar.'); }
+      session.results ||= {};
+      session.results[session.index] = { played: Boolean(session.attempt && !session.revealed), hints: session.hint };
+      if (session.index + 1 < session.items.length) { session.index++; profile.weaknessSeen = [...new Set([...(profile.weaknessSeen || []), session.items[session.index].id])]; session.hint = 0; session.solved = false; session.display = 'start'; session.message = ''; session.attempt = null; session.lastOutcome = null; session.revealed = false; }
+      else { const results = Object.values(session.results); profile.weaknessSummary = { at: new Date().toISOString(), positions: results.length, found: results.filter(r=>r.played).length }; profile.weaknessSession = null; showLight($('reviewLightPortrait'), {stage:'summary'}); showToast(`Treino concluído: ${results.length} posições revistas, ${profile.weaknessSummary.found} alternativas encontradas antes de revelar.`); }
     }
     weaknessSelected = null; weaknessLegal = [];
     saveProfile(); renderWeaknessTraining();
@@ -2341,8 +2389,8 @@
     const move = candidates.find((m) => !m.promotion || m.promotion === $('weaknessPromotion').value);
     if (move) {
       const uci = Core.moveToUCI(move);
-      if (uci === item.best) { session.solved = true; session.attempt = uci; session.display = 'attempt'; session.message = `Isso: ${Weakness.words(state, uci)}. Você encontrou a alternativa deste exercício.`; }
-      else { session.hint = 0; session.message = `${Weakness.words(state, uci)} é legal. Compare com a ameaça; ainda não é a alternativa proposta neste exercício. Você pode tentar de novo ou ver a solução.`; }
+      if (uci === item.best) { session.lastOutcome = 'solved'; session.solved = true; session.attempt = uci; session.display = 'attempt'; session.message = `Isso: ${Weakness.words(state, uci)}. Você encontrou a alternativa deste exercício.`; }
+      else { session.lastOutcome = 'retry'; session.hadMiss = true; session.hint = 0; session.message = `${Weakness.words(state, uci)} é legal. Compare com a ameaça; ainda não é a alternativa proposta neste exercício. Você pode tentar de novo ou ver a solução.`; }
       weaknessSelected = null; weaknessLegal = []; saveProfile(); renderWeaknessTraining(); return;
     }
     if (state.board[row][col] && Core.colorOf(state.board[row][col]) === state.turn) {
@@ -2403,6 +2451,7 @@
     const status = $('phaseEngineStatus');
     const job = phaseAnalysisJob;
     const running = job?.scope === storageScope && job.archiveId === source.id;
+    if (running) { showLight($('reviewLightPortrait'), {pending:true}); showLight($('weaknessLightPortrait'), {pending:true}); }
     const error = phaseAnalysisErrors.get(`${storageScope}:${source.id}`);
     const total = PhaseDiagnosis.positions(source).length;
     const checked = source.analysis?.phaseEngine?.moves?.length || 0;
@@ -3332,14 +3381,16 @@
       return;
     }
 
-    if (!confirm('Restaurar este backup substituirá o progresso atual neste navegador. Continuar?')) return;
+    if (!confirm('Juntar as partidas e treinos deste backup ao perfil atual? O histórico da conta será preservado.')) return;
 
-    const restoredProfile = normalizeProfile(parsed.profile);
+    const backupGuestId = parsed.profile._sync?.guestId;
+    const restoredProfile = normalizeProfile(authUser && backupGuestId ? ProfileSync.transferGuest(profile, parsed.profile, backupGuestId) : ProfileSync.merge(profile, parsed.profile));
+    if (!authUser && backupGuestId) localStorage.setItem('kiraGuestId', backupGuestId);
     const restoredGame = normalizeGame(parsed.currentGame);
-    localStorage.setItem(PROFILE_KEY, JSON.stringify(restoredProfile));
-    if (restoredGame?.status === 'playing') localStorage.setItem(GAME_KEY, JSON.stringify(restoredGame));
-    else localStorage.removeItem(GAME_KEY);
-    localStorage.removeItem(LEGACY_PROFILE_KEY);
+    localStorage.setItem(profileStorageKey(), JSON.stringify(restoredProfile));
+    if (restoredGame?.status === 'playing') localStorage.setItem(gameStorageKey(), JSON.stringify(restoredGame));
+    else localStorage.removeItem(gameStorageKey());
+    if (storageScope === 'guest') localStorage.removeItem(LEGACY_PROFILE_KEY);
     location.reload();
   }
 
@@ -3394,12 +3445,16 @@
     if ($('authUserEmail')) $('authUserEmail').textContent = signed ? (authUser.email || 'conta conectada') : '—';
     if ($('authAvatar')) $('authAvatar').textContent = signed ? Auth.displayName(authUser).charAt(0).toUpperCase() : 'J';
     document.querySelectorAll('#signInForm button[type="submit"],#signUpForm button[type="submit"]').forEach((button) => { button.disabled = !authConfigured; });
+    $('accountSync').classList.toggle('hidden', !signed);
+    $('syncStatus').textContent = lastSyncStatus.text;
+    const offer = signed && ProfileSync.hasProgress(loadProfile('guest')) && !profile.guestTransfers?.[guestId];
+    $('guestTransferPrompt').classList.toggle('hidden', !offer);
     if ($('accountButton')) $('accountButton').title = signed ? `Conta: ${Auth.displayName(authUser)}` : 'Entrar ou criar conta';
   }
 
   function openAuthGate() {
     updateAuthUI();
-    authError(null);
+    authError(pendingAuthMessage);
     $('authGate')?.classList.remove('hidden');
     document.body.classList.add('auth-open');
   }
@@ -3433,42 +3488,70 @@
     }
   }
 
+  function handleSyncStatus(value) {
+    lastSyncStatus = value;
+    $('syncStatus').textContent = value.text;
+    $('accountSync').dataset.state = value.state;
+    $('syncNow').disabled = value.state === 'syncing';
+  }
+
+  async function transferGuestProgress() {
+    if (!authUser) return;
+    const owner = authUser.id;
+    const button = $('transferGuestProgress'); button.disabled = true;
+    $('transferStatus').textContent = 'Juntando seu progresso, sem apagar a cópia local…';
+    try {
+      profile = normalizeProfile(ProfileSync.transferGuest(profile, loadProfile('guest'), guestId));
+      localStorage.setItem(profileStorageKey(), JSON.stringify(profile));
+      refreshProfileUI();
+      await Auth.syncNow();
+      if (authUser?.id !== owner) return;
+      $('transferStatus').textContent = 'Progresso transferido e sincronizado. A cópia de convidado foi preservada.';
+      updateAuthUI(); showToast('Seu progresso está na conta.');
+    } catch (error) { if (authUser?.id === owner) $('transferStatus').textContent = 'A transferência está salva neste navegador, mas a nuvem ainda não confirmou. Use Sincronizar agora para tentar novamente.'; }
+    finally { button.disabled = false; }
+  }
+
   async function handleAuthState(state) {
     authConfigured = Boolean(state?.configured);
-    authUser = state?.user || null;
-    const nextScope = authUser?.id || 'guest';
+    const nextUser = state?.user || null;
+    const nextScope = nextUser?.id || 'guest';
     const scopeChanged = nextScope !== storageScope;
+    authUser = nextUser;
     storageScope = nextScope;
-
-    if (state?.profile) {
-      profile = normalizeProfile(state.profile);
-    } else if (scopeChanged) {
-      profile = loadProfile(storageScope);
-    }
-
+    if (state?.profile) profile = normalizeProfile(ProfileSync.merge(state.profile, loadProfile(storageScope)));
+    else if (scopeChanged) profile = loadProfile(storageScope);
     if (authUser) {
-      const accountName = Auth.displayName(authUser);
-      if (!profile.name || profile.name === 'Jogador') profile.name = accountName;
+      if (!profile.name || profile.name === 'Jogador') profile = ProfileSync.stamp({ ...profile, name: Auth.displayName(authUser) }, profile, deviceId);
       localStorage.setItem(profileStorageKey(), JSON.stringify(profile));
-      if (!state?.profile) Auth.queueProfileSave(profile, 250);
       localStorage.removeItem('kiraChessAuthDismissed');
     }
-
-    updateAuthUI();
-    refreshProfileUI();
-    reviewData = null;
-    renderAnalysis();
-    renderTraining();
-    renderOpenings();
-    renderPatterns();
+    if (state?.authMessage) pendingAuthMessage = state.authMessage;
+    updateAuthUI(); refreshProfileUI();
+    if (scopeChanged) reviewData = null;
+    renderAnalysis(); renderTraining(); renderOpenings(); renderPatterns();
     if (scopeChanged || !game) restoreGameForCurrentScope();
-    if (authUser) closeAuthGate(false);
+    if (authUser && (scopeChanged || state.event === 'initial')) {
+      if (ProfileSync.hasProgress(loadProfile('guest')) && !profile.guestTransfers?.[guestId]) openAuthGate();
+      else closeAuthGate(false);
+    }
+    if (pendingAuthMessage) { openAuthGate(); authError(pendingAuthMessage); }
   }
 
   function bindAuthEvents() {
+    $('mobileAccountButton').addEventListener('click', openAuthGate);
+    $('syncNow').addEventListener('click', () => { void Auth.syncNow().catch(() => {}); });
+    $('transferGuestProgress').addEventListener('click', transferGuestProgress);
+    $('transferGuestLater').addEventListener('click', () => closeAuthGate(false));
+    $('googleSignIn').addEventListener('click', async () => {
+      pendingAuthMessage = null; authError(null);
+      const button = $('googleSignIn'); button.disabled = true;
+      try { await Auth.signInWithGoogle(); } catch (error) { authError(error.message); }
+      finally { button.disabled = false; }
+    });
     $('accountButton')?.addEventListener('click', openAuthGate);
     $('closeAuth')?.addEventListener('click', () => closeAuthGate(false));
-    $('continueGuest')?.addEventListener('click', () => closeAuthGate(true));
+    $('continueGuest')?.addEventListener('click', () => { pendingAuthMessage = null; closeAuthGate(true); });
     $('authGate')?.addEventListener('click', (event) => { if (event.target === $('authGate')) closeAuthGate(false); });
 
     document.querySelectorAll('[data-auth-tab]').forEach((button) => button.addEventListener('click', () => {
@@ -3481,7 +3564,7 @@
 
     $('signInForm')?.addEventListener('submit', async (event) => {
       event.preventDefault();
-      authError(null);
+      pendingAuthMessage = null; authError(null);
       if (!authConfigured) { authError('Configure o Supabase antes de usar login real.'); return; }
       const button = event.currentTarget.querySelector('button[type="submit"]');
       button.disabled = true; button.textContent = 'ENTRANDO…';
@@ -3497,7 +3580,7 @@
 
     $('signUpForm')?.addEventListener('submit', async (event) => {
       event.preventDefault();
-      authError(null);
+      pendingAuthMessage = null; authError(null);
       if (!authConfigured) { authError('Configure o Supabase antes de criar contas.'); return; }
       const button = event.currentTarget.querySelector('button[type="submit"]');
       button.disabled = true; button.textContent = 'CRIANDO…';
@@ -3661,6 +3744,7 @@
     $('analyzeGamePhases').addEventListener('click', analyzeGamePhases);
     $('trainFromHistory').addEventListener('click', () => profile.weaknessSession ? switchView('analyze') : startWeaknessTraining());
     $('trainWeakness').addEventListener('click', () => startWeaknessTraining());
+    $('closeWeaknessSummary').addEventListener('click', () => { if (profile.weaknessSummary) profile.weaknessSummary.dismissed = true; saveProfile(); renderWeaknessTraining(); });
     $('closeWeakness').addEventListener('click', () => { profile.weaknessSession = null; saveProfile(); renderWeaknessTraining(); });
     ['Hint', 'Reply', 'Solution', 'Reset', 'Next'].forEach((name) => $(`weakness${name}`).addEventListener('click', () => weaknessAction(name.toLowerCase())));
     $('phaseGameCards').addEventListener('click', openPhaseExample);
@@ -3687,6 +3771,12 @@
     $('nextExercise').addEventListener('click', nextExercise);
 
     $('resetButton').addEventListener('click', () => {
+      if (authUser) {
+        if (!confirm('Limpar a cópia local desta conta? O histórico sincronizado será recuperado da nuvem; a conta não será apagada.')) return;
+        localStorage.removeItem(profileStorageKey()); localStorage.removeItem(gameStorageKey());
+        void Auth.syncNow().then(() => showToast('Cópia local atualizada com os dados da conta.')).catch(() => showToast('A cópia local foi limpa. Reconecte para recuperar a conta.'));
+        return;
+      }
       if (!confirm('Apagar todo o progresso local e fazer uma nova avaliação?')) return;
       localStorage.removeItem(profileStorageKey()); localStorage.removeItem(gameStorageKey());
       if (storageScope === 'guest') localStorage.removeItem(LEGACY_PROFILE_KEY);
@@ -3746,7 +3836,7 @@
     updateEngineStatus({ state: stockfish.state, error: null });
 
     try {
-      await Auth.initialize(handleAuthState);
+      await Auth.initialize(handleAuthState, handleSyncStatus);
     } catch (error) {
       console.warn('Login opcional indisponível.', error);
       await handleAuthState({ configured: false, user: null, profile: null });

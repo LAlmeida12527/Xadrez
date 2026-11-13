@@ -13,10 +13,13 @@
   <div id="authGate" class="auth-gate hidden" aria-modal="true" role="dialog" aria-labelledby="authTitle">
     <div class="auth-card">
       <div class="auth-brand"><div class="brand-mark large">K</div><div><strong>KIRA CHESS</strong><span>SEU JOGO. SUA CONTA.</span></div></div>
-      <div class="auth-copy"><p class="eyebrow">ENTRAR</p><h1 id="authTitle">Seu progresso acompanha você.</h1><p>Crie uma conta para jogar em qualquer dispositivo e mandar o Kira Chess para seus amigos sem misturar os perfis.</p></div>
-      <div id="authNotConfigured" class="auth-setup-note hidden"><strong>Login ainda não conectado.</strong><span>O site funciona como convidado. Para ativar contas reais, configure <code>js/supabase-config.js</code> e execute <code>supabase-setup.sql</code>.</span></div>
+      <div class="auth-copy"><p class="eyebrow">CONTA</p><h1 id="authTitle">Seu progresso acompanha você.</h1><p>Crie uma conta para jogar em qualquer dispositivo e mandar o Kira Chess para seus amigos sem misturar os perfis.</p></div>
+      <div id="authNotConfigured" class="auth-setup-note hidden"><strong>Login ainda não conectado.</strong><span>O acesso à conta ainda não está configurado. Você pode continuar como convidado; seu progresso fica salvo neste navegador.</span></div>
       <div id="authSignedIn" class="auth-signed-in hidden"><div class="avatar large" id="authAvatar">J</div><div><strong id="authUserName">Jogador</strong><span id="authUserEmail">—</span></div><button id="closeAuth" class="secondary-button">VOLTAR AO JOGO</button><button id="signOutButton" class="text-button danger">SAIR DA CONTA</button></div>
-      <div id="authForms">
+      <div id="accountSync" class="account-sync hidden"><p id="syncStatus" role="status" aria-live="polite"></p><button id="syncNow" class="secondary-button">Sincronizar agora</button></div>
+      <section id="guestTransferPrompt" class="guest-transfer hidden" aria-labelledby="guestTransferTitle"><h2 id="guestTransferTitle">Seu progresso de convidado está aqui.</h2><p>Você pode juntar suas partidas e treinos à conta, preservando o histórico da nuvem e a cópia deste navegador.</p><button id="transferGuestProgress" class="primary-button">Levar meu progresso para a conta</button><button id="transferGuestLater" class="text-button">Agora não</button><p id="transferStatus" role="status"></p></section>
+      <div id="authError" class="auth-error hidden" role="alert"></div>
+      <div id="authForms"><button id="googleSignIn" class="google-sign-in" type="button"><span aria-hidden="true">G</span> Continuar com Google</button><div class="auth-divider">ou use seu e-mail</div>
         <div class="auth-tabs"><button class="auth-tab active" data-auth-tab="signin">ENTRAR</button><button class="auth-tab" data-auth-tab="signup">CRIAR CONTA</button></div>
         <form id="signInForm" class="auth-form">
           <label>Email<input id="signInEmail" type="email" autocomplete="email" required placeholder="voce@email.com"></label>
@@ -29,7 +32,7 @@
           <label>Senha<input id="signUpPassword" type="password" autocomplete="new-password" required minlength="6" placeholder="mínimo 6 caracteres"></label>
           <button class="primary-button" type="submit">CRIAR CONTA →</button>
         </form>
-        <div id="authError" class="auth-error hidden" role="alert"></div>
+
       </div>
       <button id="continueGuest" class="secondary-button auth-guest">CONTINUAR COMO CONVIDADO</button>
       <button id="shareSiteButton" class="text-button auth-share">↗ COMPARTILHAR KIRA CHESS</button>
@@ -61,7 +64,7 @@
     </aside>
 
     <main class="main-content">
-      <header class="mobile-header">
+      <header class="mobile-header"><button id="mobileAccountButton" class="secondary-button" type="button" aria-label="Abrir Conta">Conta</button>
         <div class="brand compact"><div class="brand-mark">K</div><div><strong>KIRA</strong></div></div>
         <div class="rating-pill"><span id="mobileRating">—</span> <small id="mobileRatingLabel">em avaliação</small></div>
       </header>
@@ -198,7 +201,7 @@
             <div class="player-strip"><div id="playerAvatar" class="avatar">J</div><div><strong id="playerName">Jogador</strong><span id="playerLevelLabel">Nível em avaliação</span></div><div class="material-status" id="materialStatus">Material igual</div></div>
           </section>
           <aside id="coachPanel" class="coach-panel panel">
-            <div class="coach-panel-head"><div><div class="panel-kicker" id="coachPanelKicker">LIGHT · AO VIVO</div><h2 id="coachStateTitle">Estou observando.</h2></div><div class="coach-sigil small">L</div></div>
+            <div class="coach-panel-head"><div><div class="panel-kicker" id="coachPanelKicker">LIGHT · AO VIVO</div><h2 id="coachStateTitle">Estou observando.</h2></div><img id="playLightPortrait" class="light-portrait" src="assets/light/atento.webp" alt="Light atento" width="56" height="56"></div>
             <div class="coach-message" id="coachMessage">Depois da jogada adversária, eu vou te ensinar como organizar o pensamento — não qual lance copiar.</div>
             <button id="reviewFinishedGame" class="primary-button hidden" data-view-jump="analyze">Ver diagnóstico da partida</button>
             <div id="coachGuide" class="coach-guide hidden"></div>
@@ -262,9 +265,10 @@
           <section id="weaknessPractice" class="panel weakness-practice hidden" aria-labelledby="weaknessTitle">
             <div class="weakness-heading"><div><p class="eyebrow" id="weaknessStep">DO SEU JOGO AO TREINO</p><h2 id="weaknessTitle">Treinar meu ponto fraco</h2></div><button id="closeWeakness" class="secondary-button">Voltar à revisão</button></div>
             <div class="weakness-workspace"><div><div id="weaknessBoard" class="chess-board" aria-label="Tabuleiro do treino pessoal"></div><p id="weaknessPosition" class="analysis-copy"></p></div>
-            <div class="weakness-copy"><div class="weakness-coach"><img src="assets/coach.webp" alt="" width="64" height="64"><div><span class="eyebrow">KIRA · SEU TREINADOR</span><h3>Observe. Entenda. Responda.</h3></div></div><img class="weakness-art" src="assets/training-entry.webp" alt="" width="480" height="240" loading="lazy"><p id="weaknessPrompt"></p><p id="weaknessFeedback" role="status" aria-live="polite"></p><label for="weaknessPromotion">Ao promover, escolher</label><select id="weaknessPromotion"><option value="q">Dama</option><option value="r">Torre</option><option value="b">Bispo</option><option value="n">Cavalo</option></select>
+            <div class="weakness-copy"><div class="weakness-coach"><img id="weaknessLightPortrait" class="light-portrait" src="assets/light/atento.webp" alt="Light atento" width="64" height="64"><div><span class="eyebrow">KIRA · SEU TREINADOR</span><h3>Observe. Entenda. Responda.</h3></div></div><img class="weakness-art" src="assets/training-entry.webp" alt="" width="480" height="240" loading="lazy"><p id="weaknessPrompt"></p><p id="weaknessFeedback" role="status" aria-live="polite"></p><label for="weaknessPromotion">Ao promover, escolher</label><select id="weaknessPromotion"><option value="q">Dama</option><option value="r">Torre</option><option value="b">Bispo</option><option value="n">Cavalo</option></select>
             <div class="weakness-actions"><button id="weaknessHint" class="secondary-button">Dica 1 · Onde olhar</button><button id="weaknessReply" class="secondary-button">Ver resposta do adversário</button><button id="weaknessSolution" class="secondary-button">Mostrar solução</button><button id="weaknessReset" class="secondary-button">Tentar novamente</button><button id="weaknessNext" class="primary-button">Próxima posição</button></div></div></div>
           </section>
+          <section id="weaknessSummaryPanel" class="panel light-summary hidden"><img src="assets/light/reflexivo.webp" alt="Light reflexivo" class="light-portrait" width="64" height="64"><div><h2>O que levar para a próxima partida</h2><p id="weaknessSummaryText" role="status"></p><button id="closeWeaknessSummary" class="secondary-button">Voltar à partida</button></div></section>
           <section class="review-workspace" id="reviewWorkspace">
             <div class="review-board-side">
               <div class="review-board-shell">
@@ -277,7 +281,7 @@
               </div>
             </div>
             <aside class="review-coach panel">
-              <div class="review-coach-head"><div class="coach-sigil">L</div><div><span id="reviewMoveBadge" class="move-classification">POSIÇÃO INICIAL</span><h2 id="reviewMoveTitle">Vamos revisar.</h2></div></div>
+              <div class="review-coach-head"><img id="reviewLightPortrait" class="light-portrait" src="assets/light/atento.webp" alt="Light atento" width="64" height="64"><div><span id="reviewMoveBadge" class="move-classification">POSIÇÃO INICIAL</span><h2 id="reviewMoveTitle">Vamos revisar.</h2></div></div>
               <p id="reviewCoachText" class="review-coach-text">Avance pelos lances. Eu vou separar resultado de decisão.</p>
               <div id="reviewBestLine" class="review-best-line hidden"></div>
               <div class="review-actions"><button id="reviewRetry" class="secondary-button">TENTAR DE NOVO</button><button id="reviewBest" class="secondary-button">MOSTRAR MELHOR LANCE</button></div>
@@ -343,14 +347,16 @@
   <script src="js/game-archive.js"></script>
   <script src="js/engine-review.js"></script>
   <script src="js/review-engine.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="assets/vendor/supabase-2.119.0.js"></script>
   <script src="js/supabase-config.js"></script>
+  <script src="js/profile-sync.js"></script>
   <script src="js/auth-service.js"></script>
   <script src="js/progress-engine.js"></script>
   <script src="js/data-portability.js"></script>
   <script src="js/stockfish-service.js"></script>
   <script src="js/phase-diagnosis.js"></script>
   <script src="js/weakness-training.js"></script>
+  <script src="js/light-reactions.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

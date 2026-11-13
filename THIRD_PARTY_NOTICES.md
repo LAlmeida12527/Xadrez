@@ -3,7 +3,7 @@
 Kira Chess é um projeto pessoal e não oficial.
 
 ## Supabase
-A autenticação opcional usa o cliente JavaScript do Supabase carregado por CDN. O projeto não inclui credenciais privadas. Apenas Project URL e chave pública devem ser configuradas no front-end.
+A autenticação opcional usa o cliente JavaScript Supabase 2.119.0 incluído localmente em `assets/vendor/`, sob licença MIT (texto no mesmo diretório). O projeto não inclui credenciais privadas. Apenas Project URL e chave pública devem ser configuradas no front-end.
 
 ## Stockfish
 O analisador profundo opcional pode carregar uma build WebAssembly/JavaScript do Stockfish sob demanda. Stockfish é software livre distribuído sob GPL. Consulte a distribuição upstream usada pelo projeto para termos e código-fonte correspondente.
@@ -19,3 +19,5 @@ Chess.com, Lichess e *Death Note* são mencionados somente como referências de 
 - Distribuição original: https://www.npmjs.com/package/stockfish/v/18.0.8.
 
 O retrato do Kira/Light e a ilustração de treino foram gerados no Codex para este projeto pessoal e otimizados em WebP. O retrato representa o personagem de *Death Note*; não é material oficial.
+
+Os oito retratos separados do Light em `assets/light/` foram gerados no Codex a partir do retrato do projeto e otimizados em WebP.

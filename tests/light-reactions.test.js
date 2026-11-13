@@ -1,0 +1,14 @@
+'use strict';
+const assert=require('node:assert/strict');const fs=require('node:fs');
+const Light=require('../js/light-reactions');
+for(const stage of ['summary','solved','retry','hint1','hint2','reply','calculate','solution'])assert.equal(Light.expression({pending:true,stage,verified:true,decisive:true,unassisted:true}),'atento');
+assert.equal(Light.expression({stage:'hint1'}),'intrigado');
+assert.equal(Light.expression({stage:'hint2',confirmedThreat:true}),'alerta');
+assert.equal(Light.expression({stage:'retry'}),'paciente');
+assert.equal(Light.expression({stage:'solved',decisive:true,unassisted:true}),'satisfeito');
+assert.equal(Light.expression({stage:'solved',verified:true,decisive:true,unassisted:true}),'impressionado');
+assert.equal(Light.expression({stage:'solved',verified:true,decisive:true,unassisted:false}),'satisfeito');
+assert.equal(Light.expression({stage:'summary'}),'reflexivo');
+for(const name of Light.EXPRESSIONS)assert.ok(fs.existsSync(Light.portrait(name)));
+assert.equal(Light.EXPRESSIONS.length,8);
+console.log('✓ Oito retratos do Light; reações condicionadas a evidência e análise pendente.');
