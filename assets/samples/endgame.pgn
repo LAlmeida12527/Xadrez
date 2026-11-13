@@ -1,0 +1,8 @@
+[Event "Teste de final com PGN FEN"]
+[SetUp "1"]
+[FEN "7k/8/5KQ1/8/8/8/8/8 w - - 0 40"]
+[White "Jogador"]
+[Black "Adversário"]
+[Result "1-0"]
+
+40. Qg5 Kh7 41. Qg7# 1-0

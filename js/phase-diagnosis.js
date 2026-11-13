@@ -136,8 +136,8 @@
     comparable.sort((a, b) => b.pressure - a.pressure);
     const [first, second] = comparable;
     const weak = first && second && first.pressure >= 0.3 && first.pressure - second.pressure >= 0.12 ? first : null;
-    return { phases, weak, games: seen.size, source: useEngine ? 'stockfish' : 'local', human: imported.length > 0 };
+    return { phases, weak, smallSample: seen.size < 2 || phases.filter((p) => p.moves >= 8).length < 2, games: seen.size, source: useEngine ? 'stockfish' : 'local', human: imported.length > 0 };
   }
 
-  return { phaseOf, positions, describeMove, verifiedMove, summarize };
+  return { PHASES, phaseOf, positions, describeMove, verifiedMove, summarize };
 });

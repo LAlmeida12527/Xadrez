@@ -2734,3 +2734,75 @@ body.auth-open { overflow:hidden; }
 @media (max-width: 760px) {
   .phase-cards { grid-template-columns: 1fr; }
 }
+
+/* Personal training: a full board, immediate taps, and controls below it on phones. */
+.weakness-practice { padding: 22px; scroll-margin-top: 20px; border-color: #68313b; }
+.weakness-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:20px; }
+.weakness-heading h2 { margin:5px 0; }
+.weakness-workspace { display:grid; grid-template-columns:minmax(280px, 520px) minmax(240px, 1fr); gap:26px; align-items:start; }
+#weaknessBoard { width:100%; aspect-ratio:1; position:relative; touch-action:manipulation; }
+.weakness-coach { display:flex; align-items:center; gap:12px; }
+.weakness-coach img { border-radius:50%; object-fit:cover; }
+.weakness-coach h3 { margin:6px 0; font-size:20px; }
+.weakness-art { width:100%; height:110px; object-fit:cover; border-radius:12px; margin-top:16px; }
+.weakness-copy p { line-height:1.65; font-size:15px; }
+#weaknessFeedback { background:#1c171b; border-left:3px solid #b04355; padding:14px; min-height:80px; }
+.weakness-copy label { font-size:12px; margin-right:8px; }
+.weakness-copy select { background:#191b21; color:#eee; padding:8px; border:1px solid #49434b; border-radius:8px; }
+.weakness-actions { display:grid; grid-template-columns:1fr 1fr; gap:9px; margin-top:16px; }
+.weakness-actions button { min-height:48px; touch-action:manipulation; }
+#weaknessNext { grid-column:1/-1; }
+.chess-board { position:relative; }
+.response-arrow { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:4; animation:response-appear .4s ease-out; }
+.response-square { animation:response-flash .9s ease-out; }
+@keyframes response-appear { from { opacity:0; } to { opacity:1; } }
+@keyframes response-flash { 0%, 50% { box-shadow:inset 0 0 0 4px #c94d60; } 100% { box-shadow:inset 0 0 0 0 transparent; } }
+@media(max-width:760px) {
+  .weakness-practice { padding:12px; scroll-margin-top:10px; }
+  .weakness-workspace { grid-template-columns:minmax(0,1fr); gap:12px; }
+  .weakness-heading { align-items:start; gap:8px; }
+  .weakness-heading h2 { font-size:21px; }
+  .weakness-heading button { font-size:11px; padding:10px; }
+  .weakness-art { display:none; }
+  .weakness-coach img { width:48px; height:48px; }
+  .weakness-coach h3 { font-size:18px; }
+  .phase-cards { display:flex; overflow-x:auto; scroll-snap-type:x mandatory; padding-bottom:8px; }
+  .phase-card { flex:0 0 90%; scroll-snap-align:start; }
+  .phase-card button { min-height:44px; }
+  .review-board-shell { gap:6px; }
+  .review-board-side { min-width:0; }
+  .review-workspace { scroll-margin-top:12px; }
+  #trainWeakness { width:100%; min-height:50px; }
+}
+@media(prefers-reduced-motion:reduce) {
+  *, *::before, *::after { animation-duration:.001ms!important; transition-duration:.001ms!important; scroll-behavior:auto!important; }
+}
+.phase-diagnosis { padding:18px; }
+.phase-example .text-button { font-size:14px; line-height:1.5; color:#e4c2c9; }
+.training-active > .section-header, .training-active .review-summary, .training-active .phase-diagnosis,
+.training-active .review-workspace, .training-active .review-graph-panel, .training-active > .archive-panel,
+.training-active > .mistakes-panel { display:none; }
+.training-active .analysis-content { margin-top:0; }
+@media(max-width:760px) {
+  .weakness-practice { margin-top:10px; }
+  .weakness-heading .eyebrow { font-size:9px; }
+  .weakness-copy p { font-size:14px; margin:10px 0; }
+  .weakness-actions { padding-bottom:10px; }
+  #weaknessFeedback { min-height:0; }
+}
+.pgn-examples { display:flex; flex-wrap:wrap; gap:8px; margin:14px 0; }
+.pgn-examples span { flex-basis:100%; font-size:13px; color:#b8b3bb; }
+.pgn-examples button { padding:10px 12px; min-height:44px; }
+.response-arrow line { stroke-dasharray:1; animation:response-draw .45s ease-out; }
+@keyframes response-draw { from { stroke-dashoffset:1; } to { stroke-dashoffset:0; } }
+@media(max-width:760px) { .weakness-practice { scroll-margin-top:76px; } }
+.weakness-entry { display:flex; gap:22px; align-items:center; padding:20px; margin-bottom:20px; border-color:#60303b; }
+.weakness-entry > img { width:160px; height:160px; object-fit:cover; border-radius:12px; }
+.weakness-entry h2 { margin:6px 0; }
+.weakness-entry .primary-button { margin:14px 14px 0 0; min-height:48px; }
+.weakness-entry .text-button { display:inline-block; font-size:13px; margin-top:14px; }
+@media(max-width:760px) {
+  .weakness-entry { display:block; padding:16px; }
+  .weakness-entry > img { width:100%; height:120px; margin-bottom:12px; }
+  .weakness-entry .primary-button { width:100%; }
+}

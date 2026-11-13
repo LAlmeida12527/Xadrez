@@ -129,6 +129,7 @@
         <div class="section-header compact-section-header">
           <div><p class="eyebrow">TREINAR</p><h1>Seu catálogo, na ordem certa.</h1><p class="lead">Mais atividades onde você erra mais. Menos conteúdo só para encher tela.</p></div>
         </div>
+        <section class="panel weakness-entry"><img src="assets/training-entry.webp" alt="" width="160" height="160"><div><p class="eyebrow">DA PARTIDA PARA O TABULEIRO</p><h2>Treinar meu ponto fraco</h2><p id="weaknessEntryText" class="analysis-copy">Importe uma partida para transformar um erro em treino.</p><button id="trainFromHistory" class="primary-button">Treinar meu ponto fraco</button><button class="text-button" data-view-jump="analyze">Abrir diagnóstico e importar PGN</button></div></section>
         <div id="trainingLocked" class="panel locked-experience">
           <span class="lock-symbol">◇</span><div><div class="panel-kicker">AINDA NÃO</div><h2>Primeiro eu preciso ver uma partida sua.</h2><p>Depois da avaliação, o catálogo é ordenado pelos erros mais comuns e pelo seu jeito de jogar.</p></div><button class="primary-button" data-start-assessment>JOGAR AVALIAÇÃO</button>
         </div>
@@ -254,7 +255,15 @@
               <button id="analyzeGamePhases" class="secondary-button">Analisar com Stockfish</button>
             </div>
             <p id="phaseEngineStatus" class="analysis-copy hidden" role="status"></p>
+            <button id="trainWeakness" class="primary-button">Treinar meu ponto fraco</button>
+            <p id="weaknessAvailability" class="analysis-copy"></p>
             <div id="phaseGameCards" class="phase-cards"></div>
+          </section>
+          <section id="weaknessPractice" class="panel weakness-practice hidden" aria-labelledby="weaknessTitle">
+            <div class="weakness-heading"><div><p class="eyebrow" id="weaknessStep">DO SEU JOGO AO TREINO</p><h2 id="weaknessTitle">Treinar meu ponto fraco</h2></div><button id="closeWeakness" class="secondary-button">Voltar à revisão</button></div>
+            <div class="weakness-workspace"><div><div id="weaknessBoard" class="chess-board" aria-label="Tabuleiro do treino pessoal"></div><p id="weaknessPosition" class="analysis-copy"></p></div>
+            <div class="weakness-copy"><div class="weakness-coach"><img src="assets/coach.webp" alt="" width="64" height="64"><div><span class="eyebrow">KIRA · SEU TREINADOR</span><h3>Observe. Entenda. Responda.</h3></div></div><img class="weakness-art" src="assets/training-entry.webp" alt="" width="480" height="240" loading="lazy"><p id="weaknessPrompt"></p><p id="weaknessFeedback" role="status" aria-live="polite"></p><label for="weaknessPromotion">Ao promover, escolher</label><select id="weaknessPromotion"><option value="q">Dama</option><option value="r">Torre</option><option value="b">Bispo</option><option value="n">Cavalo</option></select>
+            <div class="weakness-actions"><button id="weaknessHint" class="secondary-button">Dica 1 · Onde olhar</button><button id="weaknessReply" class="secondary-button">Ver resposta do adversário</button><button id="weaknessSolution" class="secondary-button">Mostrar solução</button><button id="weaknessReset" class="secondary-button">Tentar novamente</button><button id="weaknessNext" class="primary-button">Próxima posição</button></div></div></div>
           </section>
           <section class="review-workspace" id="reviewWorkspace">
             <div class="review-board-side">
@@ -316,7 +325,7 @@
   </div>
 
   <div id="pgnImportModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="pgnImportTitle">
-    <div class="modal-card pgn-modal"><div class="panel-kicker">IMPORTAR PARTIDA</div><h2 id="pgnImportTitle">Cole o PGN.</h2><p>O Kira Chess analisará apenas o seu lado. A estimativa de nível não muda automaticamente por uma única importação.</p><label class="field-label" for="importSide">EU JOGUEI DE</label><select id="importSide" class="modal-select"><option value="w">Brancas</option><option value="b">Pretas</option></select><label class="field-label" for="pgnInput">PGN</label><textarea id="pgnInput" class="pgn-input" rows="10" spellcheck="false" placeholder="1. e4 e5 2. Nf3 Nc6 ..."></textarea><div id="importPgnError" class="form-error hidden" role="alert"></div><div class="modal-actions"><button id="cancelPgnImport" class="secondary-button">CANCELAR</button><button id="confirmPgnImport" class="primary-button">ANALISAR PARTIDA</button></div></div>
+    <div class="modal-card pgn-modal"><div class="panel-kicker">IMPORTAR PARTIDA</div><h2 id="pgnImportTitle">Cole o PGN.</h2><p>O Kira Chess analisará apenas o seu lado. A estimativa de nível não muda automaticamente por uma única importação.</p><div class="pgn-examples"><span>Sem PGN? Use uma partida de teste:</span><button class="secondary-button" data-pgn-example="white">Brancas</button><button class="secondary-button" data-pgn-example="black">Pretas</button><button class="secondary-button" data-pgn-example="all-phases">Três fases</button><button class="secondary-button" data-pgn-example="pattern">Dama sob ataque</button></div><label class="field-label" for="importSide">EU JOGUEI DE</label><select id="importSide" class="modal-select"><option value="w">Brancas</option><option value="b">Pretas</option></select><label class="field-label" for="pgnInput">PGN</label><textarea id="pgnInput" class="pgn-input" rows="10" spellcheck="false" placeholder="1. e4 e5 2. Nf3 Nc6 ..."></textarea><div id="importPgnError" class="form-error hidden" role="alert"></div><div class="modal-actions"><button id="cancelPgnImport" class="secondary-button">CANCELAR</button><button id="confirmPgnImport" class="primary-button">ANALISAR PARTIDA</button></div></div>
   </div>
 
   <div id="toast" class="toast hidden" role="status"></div>
@@ -341,6 +350,7 @@
   <script src="js/data-portability.js"></script>
   <script src="js/stockfish-service.js"></script>
   <script src="js/phase-diagnosis.js"></script>
+  <script src="js/weakness-training.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

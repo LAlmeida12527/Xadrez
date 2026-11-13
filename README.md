@@ -138,3 +138,34 @@ A suíte valida 20 módulos JavaScript, regras do xadrez, bots, abertura, Game R
 
 ## GitHub Pages
 O projeto continua estático, com `index.html` na raiz e `.nojekyll` incluído. Publique `main` a partir de `/(root)` em **Settings → Pages**.
+
+## Diagnóstico → treino pessoal
+
+Em **Analisar → Importar partida real**, escolha seu lado e cole um PGN. Há exemplos de brancas, pretas, uma partida sintética que chega ao final e uma posição de dama sob ataque. Os exemplos são identificados como testes e só entram no histórico quando você confirma a importação.
+
+O Stockfish local compara todas as suas decisões. O diagnóstico separa abertura e desenvolvimento, meio-jogo e final; os exemplos abrem o lance correspondente. A conclusão é provisória com **amostra pequena**, e fases sem dados continuam identificadas. O histórico prioriza partidas importadas e evita contar duplicatas.
+
+**Treinar meu ponto fraco** começa antes de um erro da partida. Você pode tocar na peça e no destino, pedir duas dicas, ver a resposta adversária ou aplicar a solução. Uma segunda posição aparece apenas quando a biblioteca tem o mesmo padrão concreto e a posição ainda não foi vista no histórico ou nesse treino. Sem essa correspondência, o app informa a limitação. Alternativas legais diferentes da solução proposta podem ser boas: o treino não as classifica automaticamente como erros. O diagnóstico e a sessão ficam salvos neste navegador/perfil.
+
+### Verificação pelo navegador
+
+```bash
+npm ci
+npm run serve
+# Em outro terminal, com Chromium instalado:
+CHROMIUM_PATH=/usr/bin/chromium npm run test:browser
+```
+
+O teste usa Playwright, PGNs de teste, cliques/toques reais e Stockfish WASM. Veja [o relatório da entrega](docs/diagnostico-treino.md).
+
+### Recursos preparados para APK
+
+```bash
+npm run build
+```
+
+`dist/` contém o aplicativo estático, peças SVG, imagens WebP, exemplos PGN e Stockfish JS/WASM local. Esse diretório pode ser usado futuramente como `webDir` de um projeto Capacitor. Sirva a aplicação por HTTP(S) ou pela origem local do WebView; abrir `index.html` diretamente por `file://` não oferece as mesmas condições para workers/fetch. Ainda não há projeto Android nem APK nesta entrega.
+
+O núcleo de diagnóstico e treino não usa serviços externos. O login opcional ainda usa o Supabase via CDN e exige sua própria configuração. As posições didáticas disponíveis nesta entrega cobrem cavalo contra dama, bispo contra torre e rede de mate não aproveitada. Não há geração automática de exercícios nem garantia de segunda posição para todos os erros.
+
+A prévia privada em Sites mantém um espelho da aplicação. O desenvolvimento e o PR continuam neste repositório; o endereço está no PR #1. Dados salvos em origens diferentes (GitHub Pages e Sites) ficam separados; use o backup do app para transferir seu histórico.

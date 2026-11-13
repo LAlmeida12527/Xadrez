@@ -5,8 +5,8 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  const DEFAULT_SCRIPT = 'https://unpkg.com/stockfish@18.0.8/bin/stockfish-18-lite-single.js';
-  const DEFAULT_WASM = 'https://unpkg.com/stockfish@18.0.8/bin/stockfish-18-lite-single.wasm';
+  const DEFAULT_SCRIPT = new URL('assets/engine/stockfish-18-lite-single.js', typeof document !== 'undefined' ? document.baseURI : 'http://localhost/').href;
+  const DEFAULT_WASM = new URL('assets/engine/stockfish-18-lite-single.wasm', typeof document !== 'undefined' ? document.baseURI : 'http://localhost/').href;
 
   function parseInfo(line) {
     if (!line.startsWith('info ')) return null;
@@ -94,7 +94,8 @@
         const blob = new Blob([source], { type: 'text/javascript' });
         this.workerBlobUrl = URL.createObjectURL(blob);
 
-        const hash = `#${encodeURIComponent(this.wasmUrl)},worker`;
+        // This is the UCI controller. The upstream ",worker" suffix is reserved for secondary workers.
+        const hash = `#${encodeURIComponent(this.wasmUrl)}`;
         this.worker = new Worker(this.workerBlobUrl + hash);
         this.worker.addEventListener('message', (event) => this.handleLine(String(event.data || '')));
         this.worker.addEventListener('error', (event) => {

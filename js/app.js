@@ -19,9 +19,12 @@
   const Progress = window.KiraProgressEngine;
   const Portability = window.KiraDataPortability;
   const PhaseDiagnosis = window.KiraPhaseDiagnosis;
+  const Weakness = window.KiraWeaknessTraining;
+  let weaknessSelected = null;
+  let weaknessLegal = [];
   const { StockfishService } = window.KiraStockfish;
 
-  if (!Core || !Analysis || !PlayerModel || !Openings || !CoachEngine || !CoachAI || !HumanBot || !Training || !PatternMemory || !Development || !Mistakes || !Archive || !EngineReview || !Review || !Auth || !Progress || !Portability || !PhaseDiagnosis || !StockfishService) {
+  if (!Core || !Analysis || !PlayerModel || !Openings || !CoachEngine || !CoachAI || !HumanBot || !Training || !PatternMemory || !Development || !Mistakes || !Archive || !EngineReview || !Review || !Auth || !Progress || !Portability || !PhaseDiagnosis || !Weakness || !StockfishService) {
     throw new Error('Falha ao carregar os módulos do Kira Chess.');
   }
 
@@ -31,6 +34,8 @@
   let storageScope = 'guest';
   let authUser = null;
   let authConfigured = false;
+
+  const scrollBehavior = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth';
 
   const $ = (id) => document.getElementById(id);
 
@@ -326,7 +331,7 @@
   }
 
   function normalizeGame(input) {
-    if (!input || ![2, 3, 5].includes(input.version) || !input.state || !Array.isArray(input.history)) return null;
+    if (!input || ![2, 3, 5, 6].includes(input.version) || !input.state || !Array.isArray(input.history)) return null;
     return {
       ...input,
       version: 6,
@@ -628,7 +633,7 @@
     saveGame();
     renderCoachObservation();
     if (window.innerWidth <= 760) {
-      setTimeout(() => $('coachPanel')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
+      setTimeout(() => $('coachPanel')?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' }), 120);
     }
   }
 
@@ -700,7 +705,7 @@
     $('gameBoard')?.classList.add('coach-ready');
     setTimeout(() => $('gameBoard')?.classList.remove('coach-ready'), 900);
     if (window.innerWidth <= 760) {
-      setTimeout(() => $('gameBoard')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 120);
+      setTimeout(() => $('gameBoard')?.scrollIntoView({ behavior: scrollBehavior(), block: 'center' }), 120);
     }
   }
 
@@ -714,7 +719,7 @@
     $('coachSkipButton')?.classList.add('hidden');
     setCoach('Sua vez.', 'Você pulou a leitura deste lance. Antes de mover, pelo menos faça uma verificação rápida: xeques, capturas, ameaças e peça menos ativa.');
     if (window.innerWidth <= 760) {
-      setTimeout(() => $('gameBoard')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 120);
+      setTimeout(() => $('gameBoard')?.scrollIntoView({ behavior: scrollBehavior(), block: 'center' }), 120);
     }
   }
 
@@ -1485,6 +1490,19 @@
         element.appendChild(square);
       }
     }
+    if (opts.arrow) {
+      const a = opts.arrow;
+      const point = (row, col) => orientation === 'b' ? [7.5 - col, 7.5 - row] : [col + .5, row + .5];
+      const [x1,y1] = point(a.fromRow,a.fromCol), [x2,y2] = point(a.toRow,a.toCol);
+      const id = `${element.id}-arrow`;
+      const overlay = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      overlay.setAttribute('viewBox', '0 0 8 8');
+      overlay.setAttribute('aria-hidden','true');
+      overlay.classList.add('response-arrow');
+      overlay.innerHTML = `<defs><marker id="${id}" markerWidth="3" markerHeight="3" refX="2" refY="1.5" orient="auto"><path d="M0,0 L3,1.5 L0,3 Z" fill="#c94d60"/></marker></defs><line pathLength="1" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#c94d60" stroke-width=".12" marker-end="url(#${id})"/>`;
+      element.appendChild(overlay);
+      for (const [r,c] of [[a.fromRow,a.fromCol],[a.toRow,a.toCol]]) element.querySelector(`[data-row="${r}"][data-col="${c}"]`)?.classList.add('response-square');
+    }
   }
 
   function renderGame() {
@@ -1718,6 +1736,12 @@
   }
 
   function renderTraining() {
+    const source = currentReviewArchiveItem();
+    const available = source && Weakness.build([source], null, profile.gameArchive, profile.weaknessSeen || []);
+    const resume = Boolean(profile.weaknessSession?.items?.length);
+    $('trainFromHistory').disabled = !resume && !available;
+    $('trainFromHistory').textContent = resume ? 'Continuar treino' : 'Treinar meu ponto fraco';
+    $('weaknessEntryText').textContent = resume ? 'Seu treino ficou salvo. Continue da posição em que parou.' : available ? 'Comece por um erro da partida selecionada, entenda a resposta adversária e aplique o mesmo padrão em outra posição quando disponível.' : 'Importe uma partida para transformar um erro em treino. Você também pode usar os exemplos do importador.';
     const assessed = Boolean(profile.assessment?.completed);
     $('trainingLocked')?.classList.toggle('hidden', assessed);
     $('trainingExperience')?.classList.toggle('hidden', !assessed);
@@ -1771,7 +1795,7 @@
     $('exerciseFeedbackTitle').textContent = title;
     $('exerciseFeedbackText').textContent = text;
     if (window.innerWidth <= 760) {
-      setTimeout(() => box.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80);
+      setTimeout(() => box.scrollIntoView({ behavior: scrollBehavior(), block: 'center' }), 80);
     }
   }
 
@@ -2043,7 +2067,7 @@
     saveProfile();
     reviewData = null;
     renderAnalysis();
-    $('analysisContent')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    $('analysisContent')?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
     if (!phaseAnalysisErrors.has(`${storageScope}:${archiveId}`)) void analyzeGamePhases();
     showToast('Partida aberta na revisão.');
   }
@@ -2240,6 +2264,94 @@
     renderReviewGraph();
   }
 
+  function startWeaknessTraining(archiveId, ply) {
+    const source = archiveId ? profile.gameArchive.find((g) => g.id === archiveId) : currentReviewArchiveItem();
+    if (!source) return;
+    const session = Weakness.build([source], ply ? { archiveId: source.id, ply } : null, profile.gameArchive, profile.weaknessSeen || []);
+    if (!session) { showToast('Ainda não há uma alternativa válida para treinar esse lance.'); return; }
+    profile.weaknessSession = session;
+    weaknessSelected = null;
+    weaknessLegal = [];
+    saveProfile();
+    switchView('analyze');
+    renderWeaknessTraining();
+    $('weaknessPractice').scrollIntoView({ block: 'start', behavior: 'instant' });
+  }
+
+  function renderWeaknessTraining() {
+    const session = profile.weaknessSession;
+    const item = session?.items?.[session.index];
+    $('weaknessPractice').classList.toggle('hidden', !item);
+    $('view-analyze').classList.toggle('training-active', Boolean(item));
+    if (!item) return;
+    const { state, after, reply, best } = Weakness.context(item);
+    let shown = state, arrow = null;
+    if (session.display === 'reply' && reply) { shown = Core.makeMoveCopy(after, reply); arrow = reply; }
+    if (session.display === 'solution' && best) { shown = Core.makeMoveCopy(state, best); arrow = best; }
+    const attempt = session.attempt && Core.moveFromUCI(state, session.attempt);
+    if (session.display === 'attempt' && attempt) { shown = Core.makeMoveCopy(state, attempt); arrow = attempt; }
+    const look = reply ? Core.squareName(reply.fromRow, reply.fromCol) : best ? Core.squareName(best.fromRow, best.fromCol) : null;
+    renderBoard($('weaknessBoard'), shown, { orientation: state.turn, interactive: session.display === 'start',
+      onClick: onWeaknessSquare, selected: weaknessSelected, legal: weaknessLegal,
+      hintSquare: session.hint > 0 && session.display === 'start' ? look : null, arrow });
+    $('weaknessStep').textContent = `${session.index + 1} / ${session.items.length} · ${session.index === 0 ? 'SEU ERRO REAL' : 'APLICAR EM POSIÇÃO NOVA'}`;
+    $('weaknessPosition').textContent = `${item.phase} · ${item.source} · ${state.turn === 'w' ? 'Você joga de brancas' : 'Você joga de pretas'}`;
+    $('weaknessPrompt').textContent = session.index === 0
+      ? `Antes de ${state.fullmove}${state.turn === 'b' ? '...' : '.'} ${PhaseDiagnosis.describeMove(state, item.probe)}. Toque na peça e no destino para encontrar uma alternativa.`
+      : 'A posição mudou; o padrão é o mesmo. Encontre uma resposta sem repetir o erro. Toque na peça e depois no destino.';
+    let text = session.message || 'Sua vez. Procure xeques, capturas e ameaças antes de escolher.';
+    if (session.display === 'reply') text = `Depois de ${Weakness.words(state, item.probe)}, ${Weakness.words(after, item.reply, state.turn)}. A seta mostra a resposta possível do adversário.`;
+    else if (session.display === 'solution') text = `Solução: ${Weakness.words(state, item.best)}. A resposta foi aplicada no tabuleiro. ${item.key === 'mate-missed' ? 'Confira como as casas de fuga do rei ficaram fechadas.' : 'Compare essa posição com a resposta adversária ao erro original.'}`;
+    else if (session.hint === 1) text = `Onde olhar: observe ${look || 'o rei e as peças sem defesa'}. A casa está destacada. Não escolha um lance ainda; siga os ataques dessa peça.`;
+    else if (session.hint >= 2) text = item.key === 'mate-missed' ? 'Existe uma rede de mate: seu rei limita as fugas. Procure um xeque que feche as casas restantes.' : reply ? `A ameaça: depois do lance original, ${Weakness.words(after, item.reply, state.turn)}. Como você pode evitar essa continuação?` : 'Procure os xeques e as casas de fuga do rei. Depois compare a atividade das suas peças. Não há uma resposta adversária verificada disponível para este lance.';
+    $('weaknessFeedback').textContent = text;
+    const promotion = Core.generateLegalMoves(state, state.turn).some((m) => m.promotion);
+    $('weaknessPromotion').hidden = !promotion;
+    document.querySelector('label[for="weaknessPromotion"]').hidden = !promotion;
+    $('weaknessHint').textContent = session.hint ? 'Dica 2 · Entender a ameaça' : 'Dica 1 · Onde olhar';
+    $('weaknessHint').disabled = session.hint >= 2 || session.display !== 'start';
+    $('weaknessReply').disabled = !reply;
+    $('weaknessNext').disabled = !session.solved;
+    $('weaknessNext').textContent = session.index + 1 < session.items.length ? 'Aplicar em posição nova →' : 'Concluir treino';
+    if (session.items.length === 1) $('weaknessPosition').textContent += ' · Ainda não há outra posição inédita deste padrão na biblioteca.';
+  }
+
+  function weaknessAction(action) {
+    const session = profile.weaknessSession;
+    if (!session) return;
+    if (action === 'hint') session.hint = Math.min(2, session.hint + 1);
+    if (action === 'reply') session.display = 'reply';
+    if (action === 'solution') { session.display = 'solution'; session.solved = true; }
+    if (action === 'reset') { session.display = 'start'; session.hint = 0; session.solved = false; session.message = ''; session.attempt = null; }
+    if (action === 'next') {
+      if (!session.solved) return;
+      if (session.index + 1 < session.items.length) { session.index++; profile.weaknessSeen = [...new Set([...(profile.weaknessSeen || []), session.items[session.index].id])]; session.hint = 0; session.solved = false; session.display = 'start'; session.message = ''; session.attempt = null; }
+      else { profile.weaknessSession = null; showToast('Treino concluído. Na próxima partida, procure esse padrão antes de jogar.'); }
+    }
+    weaknessSelected = null; weaknessLegal = [];
+    saveProfile(); renderWeaknessTraining();
+  }
+
+  function onWeaknessSquare(row, col) {
+    const session = profile.weaknessSession;
+    if (!session || session.display !== 'start') return;
+    const item = session.items[session.index];
+    const { state } = Weakness.context(item);
+    const candidates = weaknessLegal.filter((m) => m.toRow === row && m.toCol === col);
+    const move = candidates.find((m) => !m.promotion || m.promotion === $('weaknessPromotion').value);
+    if (move) {
+      const uci = Core.moveToUCI(move);
+      if (uci === item.best) { session.solved = true; session.attempt = uci; session.display = 'attempt'; session.message = `Isso: ${Weakness.words(state, uci)}. Você encontrou a alternativa deste exercício.`; }
+      else { session.hint = 0; session.message = `${Weakness.words(state, uci)} é legal. Compare com a ameaça; ainda não é a alternativa proposta neste exercício. Você pode tentar de novo ou ver a solução.`; }
+      weaknessSelected = null; weaknessLegal = []; saveProfile(); renderWeaknessTraining(); return;
+    }
+    if (state.board[row][col] && Core.colorOf(state.board[row][col]) === state.turn) {
+      weaknessSelected = { row, col };
+      weaknessLegal = Core.generateLegalMoves(state, state.turn).filter((m) => m.fromRow === row && m.fromCol === col);
+    } else { weaknessSelected = null; weaknessLegal = []; }
+    renderWeaknessTraining();
+  }
+
   function renderPhaseDiagnosis(source) {
     const history = !source;
     const report = PhaseDiagnosis.summarize(history ? profile.gameArchive : [source], { history });
@@ -2256,9 +2368,14 @@
         : `Nesta partida, você teve mais dificuldade em ${report.weak.name.toLowerCase()}.`
       : history ? 'Ainda não apareceu uma fase claramente mais fraca.'
         : 'Nesta partida, os dados ainda não apontam uma fase claramente mais fraca.';
-    summary.textContent = history
+    summary.textContent = (report.smallSample ? 'Amostra pequena · conclusão provisória. ' : '') + (history
       ? `${focus} ${report.games} ${report.human ? 'PGN(s) importado(s)' : 'partida(s) no Kira'} · ${origin}.`
-      : `${focus} Fonte: ${origin}.`;
+      : `${focus} Fonte: ${origin}.`);
+    if (!history) {
+      const available = Weakness.build([source], null, profile.gameArchive, profile.weaknessSeen || []);
+      $('trainWeakness').disabled = !available;
+      $('weaknessAvailability').textContent = available ? 'Comece por um erro seu. Depois, aplique o padrão em outra posição quando houver uma disponível.' : 'O treino aparece quando houver um erro com uma alternativa válida. Você pode importar outra partida.';
+    }
 
     cards.innerHTML = report.phases.map((phase) => {
       const priority = report.weak?.id === phase.id;
@@ -2273,6 +2390,7 @@
         ${priority ? `<p class="analysis-copy">${phase.practice}</p>` : ''}
         ${phase.examples.map((example) => `<div class="phase-example">
           <button class="text-button" data-phase-game="${escapeHtml(example.archiveId)}" data-phase-ply="${example.ply}">Ver ${example.number} ${escapeHtml(example.move)}</button>
+          <button class="secondary-button" data-train-game="${escapeHtml(example.archiveId)}" data-train-ply="${example.ply}">Treinar este lance</button>
           ${example.reply ? `<small>Resposta possível: ${escapeHtml(example.reply)}.</small>` : ''}
           ${example.best ? `<small>Alternativa: ${escapeHtml(example.best)}.</small>` : ''}
         </div>`).join('')}
@@ -2344,6 +2462,8 @@
   }
 
   function openPhaseExample(event) {
+    const train = event.target.closest('[data-train-ply]');
+    if (train) { startWeaknessTraining(train.dataset.trainGame, Number(train.dataset.trainPly)); return; }
     const button = event.target.closest('[data-phase-ply]');
     if (!button) return;
     if (currentReviewArchiveItem()?.id !== button.dataset.phaseGame) openArchivedAnalysis(button.dataset.phaseGame);
@@ -2379,6 +2499,7 @@
     $('analysisMistakesCount').textContent = String(reviewData.mistakes);
     $('analysisBlundersCount').textContent = String(reviewData.blunders);
     renderPhaseDiagnosis(source);
+    renderWeaknessTraining();
     renderPhaseEngineStatus(source);
     renderReviewPosition();
   }
@@ -3237,7 +3358,7 @@
       if (source && !phaseAnalysisErrors.has(`${storageScope}:${source.id}`)) void analyzeGamePhases();
     }
     if (name === 'progress') refreshProfileUI();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: scrollBehavior() });
     if (name === 'play') requestAnimationFrame(fitGameBoard);
   }
 
@@ -3437,6 +3558,14 @@
     });
 
     $('newGameButton').addEventListener('click', () => startNewGame({ mode: selectedGameMode() }));
+    document.querySelectorAll('[data-pgn-example]').forEach((button) => button.addEventListener('click', async () => {
+      try {
+        const response = await fetch(`assets/samples/${button.dataset.pgnExample}.pgn`);
+        if (!response.ok) throw new Error('Exemplo indisponível');
+        $('pgnInput').value = await response.text();
+        $('importSide').value = button.dataset.pgnExample === 'black' ? 'b' : 'w';
+      } catch (_) { showToast('Não foi possível abrir o exemplo.'); }
+    }));
     $('openPgnImport').addEventListener('click', openPgnImport);
     $('cancelPgnImport').addEventListener('click', closePgnImport);
     $('confirmPgnImport').addEventListener('click', importPgnGame);
@@ -3530,6 +3659,10 @@
     });
 
     $('analyzeGamePhases').addEventListener('click', analyzeGamePhases);
+    $('trainFromHistory').addEventListener('click', () => profile.weaknessSession ? switchView('analyze') : startWeaknessTraining());
+    $('trainWeakness').addEventListener('click', () => startWeaknessTraining());
+    $('closeWeakness').addEventListener('click', () => { profile.weaknessSession = null; saveProfile(); renderWeaknessTraining(); });
+    ['Hint', 'Reply', 'Solution', 'Reset', 'Next'].forEach((name) => $(`weakness${name}`).addEventListener('click', () => weaknessAction(name.toLowerCase())));
     $('phaseGameCards').addEventListener('click', openPhaseExample);
     $('phaseHistoryCards').addEventListener('click', openPhaseExample);
     $('reviewFirst')?.addEventListener('click', () => goToReviewPly(0));
@@ -3541,7 +3674,7 @@
     $('reviewBest')?.addEventListener('click', toggleReviewBestMove);
     $('reviewAnotherGame')?.addEventListener('click', () => {
       $('archiveSection')?.classList.remove('hidden');
-      $('archiveSection')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      $('archiveSection')?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
       $('archiveSection')?.classList.add('archive-focus');
       setTimeout(() => $('archiveSection')?.classList.remove('archive-focus'), 1000);
     });
