@@ -98,12 +98,11 @@
         this.worker = new Worker(this.workerBlobUrl + hash);
         this.worker.addEventListener('message', (event) => this.handleLine(String(event.data || '')));
         this.worker.addEventListener('error', (event) => {
-          this.failCurrent(new Error(event.message || 'Erro no Stockfish.'));
-          this.setState('unavailable', event.message || 'Erro no Stockfish.');
+          this.stopWorker(new Error(event.message || 'Erro no Stockfish.'));
         });
 
         this.worker.postMessage('uci');
-        const ready = await this.waitUntilReady(12000);
+        const ready = await this.waitUntilReady(30000);
         if (!ready) throw new Error('Stockfish não respondeu a tempo.');
         this.setState('ready');
         return true;
@@ -180,8 +179,9 @@
     }
 
     async pumpQueue() {
-      if (this.current || !this.queue.length) return;
+      if (this.current || !this.queue.length || this.state === 'loading') return;
       if (this.state === 'idle') await this.load();
+      if (this.current || !this.queue.length) return;
       if (this.state !== 'ready' || !this.worker || !this.uciReady) {
         const pending = this.queue.splice(0);
         const message = this.error || 'Stockfish indisponível.';
@@ -191,9 +191,7 @@
 
       const request = this.queue.shift();
       const timer = setTimeout(() => {
-        if (!this.current) return;
-        this.worker.postMessage('stop');
-        this.failCurrent(new Error('A análise demorou mais do que o esperado.'));
+        this.stopWorker(new Error('A análise demorou mais do que o esperado.'));
       }, 18000);
 
       this.current = { ...request, lines: new Map(), timer };
@@ -203,13 +201,16 @@
       this.worker.postMessage(buildGoCommand(request.depth, request.searchmoves));
     }
 
-    failCurrent(error) {
-      if (!this.current) return;
+    stopWorker(error) {
       const current = this.current;
       this.current = null;
-      clearTimeout(current.timer);
-      current.reject(error);
-      this.pumpQueue();
+      if (current) {
+        clearTimeout(current.timer);
+        current.reject(error);
+      }
+      this.disposeWorker();
+      this.queue.splice(0).forEach((item) => item.reject(error));
+      this.setState('unavailable', error.message);
     }
 
     disposeWorker() {
@@ -264,8 +265,7 @@
     }
 
     dispose() {
-      this.disposeWorker();
-      this.queue.splice(0).forEach((item) => item.reject(new Error('Serviço encerrado.')));
+      this.stopWorker(new Error('Serviço encerrado.'));
       this.setState('idle');
     }
   }

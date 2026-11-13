@@ -18,9 +18,10 @@
   const Auth = window.KiraAuth;
   const Progress = window.KiraProgressEngine;
   const Portability = window.KiraDataPortability;
+  const PhaseDiagnosis = window.KiraPhaseDiagnosis;
   const { StockfishService } = window.KiraStockfish;
 
-  if (!Core || !Analysis || !PlayerModel || !Openings || !CoachEngine || !CoachAI || !HumanBot || !Training || !PatternMemory || !Development || !Mistakes || !Archive || !EngineReview || !Review || !Auth || !Progress || !Portability || !StockfishService) {
+  if (!Core || !Analysis || !PlayerModel || !Openings || !CoachEngine || !CoachAI || !HumanBot || !Training || !PatternMemory || !Development || !Mistakes || !Archive || !EngineReview || !Review || !Auth || !Progress || !Portability || !PhaseDiagnosis || !StockfishService) {
     throw new Error('Falha ao carregar os módulos do Kira Chess.');
   }
 
@@ -104,6 +105,9 @@
   let openingSelected = null;
   let openingLegal = [];
   let reviewData = null;
+  let phaseAnalysisJob = null;
+  const phaseAnalysisErrors = new Map();
+  let pendingPhaseAnalysis = null;
   let reviewPly = 0;
   let reviewShowBest = false;
   let reviewBest = null;
@@ -395,6 +399,7 @@
     if (botTimer) clearTimeout(botTimer);
     botTimer = null;
     game = createGame(null, options);
+    $('reviewFinishedGame').classList.add('hidden');
     selected = null;
     legalForSelected = [];
     pendingMove = null;
@@ -994,6 +999,7 @@
     saveProfile();
     saveGame();
     renderAnalysis();
+    $('reviewFinishedGame').classList.remove('hidden');
 
     $('turnIndicator').textContent = game.result;
     $('gameStatus').textContent = `${game.result} · ${reasonLabel(game.reason)}`;
@@ -1963,7 +1969,7 @@
     $('pgnInput').value = '';
     renderAnalysis();
     switchView('analyze');
-    showToast('Partida real analisada. Seu treino foi atualizado pelos erros encontrados.');
+    showToast('Partida importada. O diagnóstico com Stockfish aparece na revisão.');
   }
 
   function mistakeLabel(label) {
@@ -2038,6 +2044,7 @@
     reviewData = null;
     renderAnalysis();
     $('analysisContent')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (!phaseAnalysisErrors.has(`${storageScope}:${archiveId}`)) void analyzeGamePhases();
     showToast('Partida aberta na revisão.');
   }
 
@@ -2201,9 +2208,11 @@
       $('reviewCoachText').textContent = reviewRetryMessage?.text || `Voltei para antes de ${step?.notation || 'seu lance'}. Encontre uma alternativa sem olhar a resposta.`;
     } else if (reviewShowBest && step) {
       $('reviewMoveTitle').textContent = `Antes de ${step.notation}: havia uma alternativa melhor.`;
-      $('reviewCoachText').textContent = reviewBest ? `A revisão local prefere ${reviewBest.san}. Olhe as casas marcadas e tente entender a função do lance antes de decorar a notação.` : 'Não encontrei uma alternativa confiável nesta posição.';
+      $('reviewCoachText').textContent = reviewBest ? `${step.verified ? 'Stockfish' : 'A revisão local'} sugere: ${PhaseDiagnosis.describeMove(state, reviewBest.uci)}. Origem e destino estão marcados no tabuleiro.` : 'Não encontrei uma alternativa confiável nesta posição.';
     } else if (step) {
-      $('reviewMoveTitle').textContent = step.title;
+      $('reviewMoveTitle').textContent = step.verified
+        ? PhaseDiagnosis.describeMove(Core.parseFEN(step.fenBefore), step.uci) || step.title
+        : step.title;
       $('reviewCoachText').textContent = step.coachText;
     } else {
       $('reviewMoveTitle').textContent = 'Vamos revisar.';
@@ -2212,7 +2221,7 @@
 
     const bestLine = $('reviewBestLine');
     if (reviewShowBest && reviewBest) {
-      bestLine.innerHTML = `<span>MELHOR ALTERNATIVA</span><strong>${escapeHtml(reviewBest.san)}</strong><small>${escapeHtml(reviewBest.uci)}</small>`;
+      bestLine.innerHTML = `<span>MELHOR ALTERNATIVA</span><strong>${escapeHtml(PhaseDiagnosis.describeMove(state, reviewBest.uci))}</strong><small>${escapeHtml(reviewBest.san)}</small>`;
       bestLine.classList.remove('hidden');
     } else {
       bestLine.classList.add('hidden');
@@ -2229,6 +2238,119 @@
 
     renderReviewMoveList();
     renderReviewGraph();
+  }
+
+  function renderPhaseDiagnosis(source) {
+    const history = !source;
+    const report = PhaseDiagnosis.summarize(history ? profile.gameArchive : [source], { history });
+    const summary = history ? $('phaseHistorySummary') : $('phaseGameSummary');
+    const cards = history ? $('phaseHistoryCards') : $('phaseGameCards');
+    const origin = report.source === 'stockfish' ? 'Stockfish' : 'estimativa local';
+    if (!report.games) {
+      summary.textContent = 'Jogue uma partida ou importe um PGN para começar.';
+      cards.innerHTML = '';
+      return;
+    }
+    const focus = report.weak
+      ? history ? `Seu ponto mais fraco na amostra é ${report.weak.name.toLowerCase()}.`
+        : `Nesta partida, você teve mais dificuldade em ${report.weak.name.toLowerCase()}.`
+      : history ? 'Ainda não apareceu uma fase claramente mais fraca.'
+        : 'Nesta partida, os dados ainda não apontam uma fase claramente mais fraca.';
+    summary.textContent = history
+      ? `${focus} ${report.games} ${report.human ? 'PGN(s) importado(s)' : 'partida(s) no Kira'} · ${origin}.`
+      : `${focus} Fonte: ${origin}.`;
+
+    cards.innerHTML = report.phases.map((phase) => {
+      const priority = report.weak?.id === phase.id;
+      const counts = phase.moves
+        ? `${phase.moves} lances seus · ${phase.inaccuracies} imprecisões · ${phase.mistakes} erros · ${phase.blunders} erros graves`
+        : 'Sem lances avaliados nesta fase.';
+      const smallSample = phase.moves && (history ? phase.moves < 8 || phase.games < 2 : phase.moves < 3);
+      return `<article class="phase-card${priority ? ' phase-card-priority' : ''}">
+        <h3>${phase.name}</h3>
+        <p class="analysis-copy">${counts}${smallSample ? ' · amostra pequena' : ''}</p>
+        ${phase.theme ? `<p class="phase-card-theme">${escapeHtml(phase.theme[0])} · ${phase.theme[1]} lance(s)</p>` : ''}
+        ${priority ? `<p class="analysis-copy">${phase.practice}</p>` : ''}
+        ${phase.examples.map((example) => `<div class="phase-example">
+          <button class="text-button" data-phase-game="${escapeHtml(example.archiveId)}" data-phase-ply="${example.ply}">Ver ${example.number} ${escapeHtml(example.move)}</button>
+          ${example.reply ? `<small>Resposta possível: ${escapeHtml(example.reply)}.</small>` : ''}
+          ${example.best ? `<small>Alternativa: ${escapeHtml(example.best)}.</small>` : ''}
+        </div>`).join('')}
+      </article>`;
+    }).join('');
+  }
+
+  function renderPhaseEngineStatus(source) {
+    const button = $('analyzeGamePhases');
+    const status = $('phaseEngineStatus');
+    const job = phaseAnalysisJob;
+    const running = job?.scope === storageScope && job.archiveId === source.id;
+    const error = phaseAnalysisErrors.get(`${storageScope}:${source.id}`);
+    const total = PhaseDiagnosis.positions(source).length;
+    const checked = source.analysis?.phaseEngine?.moves?.length || 0;
+    const complete = total > 0 && checked >= total;
+    button.disabled = Boolean(job) || !total || complete;
+    button.textContent = running ? 'Analisando…' : complete ? 'Stockfish concluído' : error ? 'Tentar Stockfish de novo' : 'Analisar com Stockfish';
+    status.textContent = running ? `Stockfish · ${job.checked} de ${job.total} lances seus avaliados.`
+      : error ? error : complete ? `Stockfish · ${checked} lances seus avaliados.` : '';
+    status.classList.toggle('hidden', !status.textContent);
+  }
+
+  async function analyzeGamePhases() {
+    const source = currentReviewArchiveItem();
+    if (!source) return;
+    if (phaseAnalysisJob) {
+      if (phaseAnalysisJob.archiveId !== source.id || phaseAnalysisJob.scope !== storageScope) {
+        pendingPhaseAnalysis = { archiveId: source.id, scope: storageScope };
+      }
+      return;
+    }
+    const positions = PhaseDiagnosis.positions(source);
+    if (!positions.length || source.analysis?.phaseEngine?.moves?.length >= positions.length) return;
+    const job = { scope: storageScope, owner: profile, archiveId: source.id, total: positions.length, checked: 0 };
+    const key = `${job.scope}:${job.archiveId}`;
+    phaseAnalysisJob = job;
+    phaseAnalysisErrors.delete(key);
+    renderPhaseEngineStatus(source);
+    const moves = [];
+    try {
+      for (const position of positions) {
+        const result = await stockfish.compareMove(position.fenBefore, position.uci, { depth: 11, multipv: 1 });
+        if (profile !== job.owner || storageScope !== job.scope) return;
+        moves.push(PhaseDiagnosis.verifiedMove(position, result));
+        job.checked = moves.length;
+        if (profile.lastAnalysis?.archiveId === source.id) renderPhaseEngineStatus(source);
+      }
+      const current = profile.gameArchive.find((item) => item.id === source.id);
+      if (!current) return;
+      const analysis = { ...current.analysis, archiveId: source.id, phaseEngine: { moves } };
+      profile.gameArchive = Archive.updateAnalysis(profile.gameArchive, source.id, analysis);
+      if (profile.lastAnalysis?.archiveId === source.id) profile.lastAnalysis = analysis;
+      saveProfile();
+    } catch (error) {
+      if (profile === job.owner) phaseAnalysisErrors.set(key, 'O Stockfish ficou indisponível. Você pode tentar novamente. A estimativa local continua visível.');
+      console.warn('Não foi possível concluir o diagnóstico por fase.', error);
+    } finally {
+      phaseAnalysisJob = null;
+      const selected = currentReviewArchiveItem();
+      if (selected?.id === source.id && storageScope === job.scope) {
+        resetReviewInteraction();
+        renderAnalysis();
+      } else if (selected) renderPhaseEngineStatus(selected);
+      const pending = pendingPhaseAnalysis;
+      pendingPhaseAnalysis = null;
+      if (pending?.scope === storageScope && pending.archiveId === selected?.id) void analyzeGamePhases();
+    }
+  }
+
+  function openPhaseExample(event) {
+    const button = event.target.closest('[data-phase-ply]');
+    if (!button) return;
+    if (currentReviewArchiveItem()?.id !== button.dataset.phaseGame) openArchivedAnalysis(button.dataset.phaseGame);
+    if (reviewData?.archiveId !== button.dataset.phaseGame) return;
+    switchView('analyze');
+    goToReviewPly(button.dataset.phasePly);
+    requestAnimationFrame(() => $('reviewWorkspace').scrollIntoView({ block: 'start', behavior: 'instant' }));
   }
 
   function renderAnalysis() {
@@ -2252,9 +2374,12 @@
     } else reviewPly = Math.min(reviewPly, reviewData.moves.length);
 
     $('analysisResult').textContent = source.result || '—';
-    $('analysisAccuracy').textContent = `${reviewData.accuracy}%`;
-    $('analysisMistakesCount').textContent = String(reviewData.mistakes + reviewData.inaccuracies);
+    $('analysisAccuracy').textContent = reviewData.accuracy == null ? '—' : `${reviewData.accuracy}%`;
+    $('analysisAccuracy').parentElement.classList.toggle('hidden', reviewData.accuracy == null);
+    $('analysisMistakesCount').textContent = String(reviewData.mistakes);
     $('analysisBlundersCount').textContent = String(reviewData.blunders);
+    renderPhaseDiagnosis(source);
+    renderPhaseEngineStatus(source);
     renderReviewPosition();
   }
 
@@ -2271,6 +2396,13 @@
     goToReviewPly(next);
   }
 
+  function bestMoveForReview(state, step) {
+    const uci = step.verified?.best;
+    const move = uci && Core.moveFromUCI(state, uci);
+    if (!move) return Review.bestMove(state);
+    return { move, uci, san: Core.sanNotation(state, move, Core.makeMoveCopy(state, move)) };
+  }
+
   function toggleReviewBestMove() {
     const step = reviewStep();
     if (!step) return;
@@ -2282,7 +2414,7 @@
     }
     resetReviewInteraction();
     const state = Core.parseFEN(step.fenBefore);
-    reviewBest = Review.bestMove(state);
+    reviewBest = bestMoveForReview(state, step);
     reviewShowBest = true;
     renderReviewPosition();
   }
@@ -2304,9 +2436,13 @@
     }
     resetReviewInteraction();
     reviewRetryState = Core.parseFEN(step.fenBefore);
-    reviewBest = Review.bestMove(reviewRetryState);
+    reviewBest = bestMoveForReview(reviewRetryState, step);
     reviewRetryMessage = { title: 'Sua vez de corrigir.', text: `Voltei para antes de ${step.notation}. Não tente adivinhar o lance do motor: procure xeques, capturas, ameaças e a peça pior colocada.` };
     renderReviewPosition();
+  }
+
+  function stepRetryText(outcome) {
+    return reviewStep()?.verified ? `Estimativa local da tentativa: ${outcome.text}` : outcome.text;
   }
 
   function onReviewRetrySquare(row, col) {
@@ -2318,7 +2454,7 @@
         reviewRetryPreview = Core.makeMoveCopy(reviewRetryState, candidate);
         reviewRetryPreview.lastMove = { fromRow: candidate.fromRow, fromCol: candidate.fromCol, toRow: candidate.toRow, toCol: candidate.toCol };
         const labels = { best: 'Isso.', good: 'Boa recuperação.', close: 'Melhorou.', bad: 'Ainda há um problema.', invalid: 'Lance inválido.' };
-        reviewRetryMessage = { title: labels[outcome.verdict] || 'Resultado da tentativa', text: outcome.text };
+        reviewRetryMessage = { title: labels[outcome.verdict] || 'Resultado da tentativa', text: stepRetryText(outcome) };
         reviewRetrySelected = null;
         reviewRetryLegal = [];
         renderReviewPosition();
@@ -2630,6 +2766,7 @@
         : '<p class="analysis-copy">As habilidades começam a aparecer depois da avaliação e ficam mais confiáveis com novas partidas.</p>';
     }
 
+    renderPhaseDiagnosis();
     renderWeeklyReport();
     renderTraining();
     renderOpenings();
@@ -3094,7 +3231,11 @@
     if (name === 'train') renderTraining();
     if (name === 'openings') renderOpenings();
     if (name === 'patterns') renderPatterns();
-    if (name === 'analyze') renderAnalysis();
+    if (name === 'analyze') {
+      renderAnalysis();
+      const source = currentReviewArchiveItem();
+      if (source && !phaseAnalysisErrors.has(`${storageScope}:${source.id}`)) void analyzeGamePhases();
+    }
     if (name === 'progress') refreshProfileUI();
     window.scrollTo({ top: 0, behavior: 'smooth' });
     if (name === 'play') requestAnimationFrame(fitGameBoard);
@@ -3388,6 +3529,9 @@
       if (related) { setTrainingMode(related.dataset.openingPattern || 'bishop'); switchView('train'); }
     });
 
+    $('analyzeGamePhases').addEventListener('click', analyzeGamePhases);
+    $('phaseGameCards').addEventListener('click', openPhaseExample);
+    $('phaseHistoryCards').addEventListener('click', openPhaseExample);
     $('reviewFirst')?.addEventListener('click', () => goToReviewPly(0));
     $('reviewPrev')?.addEventListener('click', () => goToReviewPly(reviewPly - 1));
     $('reviewNext')?.addEventListener('click', () => goToReviewPly(reviewPly + 1));

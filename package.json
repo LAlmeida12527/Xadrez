@@ -4,7 +4,7 @@
   "private": true,
   "description": "Treinador pessoal de xadrez com Game Review, treino de planos, memória espaçada de padrões, bots por Elo e login opcional.",
   "scripts": {
-    "test": "node tests/syntax.test.js && node tests/core.test.js && node tests/static.test.js",
+    "test": "node tests/syntax.test.js && node tests/core.test.js && node tests/phase-diagnosis.test.js && node tests/static.test.js",
     "serve": "python3 -m http.server 8080"
   },
   "license": "UNLICENSED"

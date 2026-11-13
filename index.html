@@ -199,6 +199,7 @@
           <aside id="coachPanel" class="coach-panel panel">
             <div class="coach-panel-head"><div><div class="panel-kicker" id="coachPanelKicker">LIGHT · AO VIVO</div><h2 id="coachStateTitle">Estou observando.</h2></div><div class="coach-sigil small">L</div></div>
             <div class="coach-message" id="coachMessage">Depois da jogada adversária, eu vou te ensinar como organizar o pensamento — não qual lance copiar.</div>
+            <button id="reviewFinishedGame" class="primary-button hidden" data-view-jump="analyze">Ver diagnóstico da partida</button>
             <div id="coachGuide" class="coach-guide hidden"></div>
             <div id="coachChoices" class="coach-choices hidden"></div>
             <div id="coachQuickActions" class="coach-quick-actions">
@@ -247,7 +248,15 @@
             <div><span>ERROS GRAVES</span><strong id="analysisBlundersCount">0</strong></div>
             <button id="reviewAnotherGame" class="secondary-button">ESCOLHER PARTIDA</button>
           </section>
-          <section class="review-workspace">
+          <section class="panel phase-diagnosis" aria-labelledby="phaseGameTitle">
+            <div class="phase-diagnosis-heading">
+              <div><h2 id="phaseGameTitle">Diagnóstico por fase</h2><p id="phaseGameSummary" class="analysis-copy"></p></div>
+              <button id="analyzeGamePhases" class="secondary-button">Analisar com Stockfish</button>
+            </div>
+            <p id="phaseEngineStatus" class="analysis-copy hidden" role="status"></p>
+            <div id="phaseGameCards" class="phase-cards"></div>
+          </section>
+          <section class="review-workspace" id="reviewWorkspace">
             <div class="review-board-side">
               <div class="review-board-shell">
                 <div class="eval-bar" aria-label="Avaliação da posição"><div id="reviewEvalFill" class="eval-fill"></div><span id="reviewEvalLabel">0.0</span></div>
@@ -275,6 +284,11 @@
       <section id="view-progress" class="view">
         <div class="section-header"><div><p class="eyebrow">MEU JOGO</p><h1>Informação que ajuda a melhorar.</h1><p class="lead">Sem ranking presumido e sem gráfico só para decorar a tela.</p></div></div>
         <div class="progress-grid">
+          <section class="panel full-span phase-diagnosis" aria-labelledby="phaseHistoryTitle">
+            <div class="phase-diagnosis-heading"><div><h2 id="phaseHistoryTitle">Onde você perde vantagem</h2><p id="phaseHistorySummary" class="analysis-copy"></p></div></div>
+            <div id="phaseHistoryCards" class="phase-cards"></div>
+            <button class="secondary-button" data-view-jump="analyze">Abrir revisão de partidas</button>
+          </section>
           <section class="panel rating-card"><div class="panel-kicker">NÍVEL ESTIMADO</div><div class="rating-big"><strong id="progressRating">—</strong><span id="progressRange">aguardando avaliação</span></div><div class="progress-track"><div id="ratingProgressFill" class="progress-fill"></div></div><p id="ratingProgressText">A estimativa aparece depois de você jogar.</p></section>
           <section class="panel"><div class="panel-kicker">ESTILO OBSERVADO</div><h2 id="progressStyle">Ainda não avaliado</h2><p id="progressStyleDescription" class="analysis-copy">Seu estilo será inferido das suas decisões.</p></section>
           <section class="panel"><div class="panel-kicker">HABILIDADES</div><div id="skillBars" class="skill-bars"></div></section>
@@ -326,6 +340,7 @@
   <script src="js/progress-engine.js"></script>
   <script src="js/data-portability.js"></script>
   <script src="js/stockfish-service.js"></script>
+  <script src="js/phase-diagnosis.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

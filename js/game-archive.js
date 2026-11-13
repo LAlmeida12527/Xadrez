@@ -51,6 +51,7 @@
       completedAt: game?.completedAt || new Date().toISOString(),
       result: game?.result || 'Empate',
       reason: game?.reason || null,
+      source: game?.source || null,
       botLevel: Math.max(0, Number(game?.botLevel) || 0),
       trainingFocus: game?.trainingFocus || null,
       pgn: String(pgn || ''),

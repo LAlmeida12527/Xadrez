@@ -78,6 +78,7 @@ const app = fs.readFileSync(path.join(root, 'js/app.js'), 'utf8');
     'js/progress-engine.js',
     'js/data-portability.js',
     'js/stockfish-service.js',
+    'js/phase-diagnosis.js',
     'js/app.js'
   ];
   let previous = -1;
